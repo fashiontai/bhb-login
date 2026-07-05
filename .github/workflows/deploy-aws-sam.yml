@@ -67,17 +67,9 @@ jobs:
       - name: Setup AWS SAM
         uses: aws-actions/setup-sam@v3
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Validate deployment parameters
         env:
+          AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
@@ -85,12 +77,22 @@ jobs:
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
         run: |
           set -euo pipefail
-          for name in DATABASE_PASSWORD BETTER_AUTH_SECRET BETTER_AUTH_URL CORS_ORIGIN VITE_SERVER_URL; do
+          for name in AWS_ROLE_TO_ASSUME DATABASE_PASSWORD BETTER_AUTH_SECRET BETTER_AUTH_URL CORS_ORIGIN VITE_SERVER_URL; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing GitHub secret: ${name}"
               exit 1
             fi
           done
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: bhb-login-sam-deploy
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Check code
         env:
