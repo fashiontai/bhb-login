@@ -160,6 +160,8 @@ Resources:
                   - ec2:DescribeAccountAttributes
                   - ec2:DescribeAddresses
                   - ec2:DescribeAvailabilityZones
+                  - ec2:DescribeImages
+                  - ec2:DescribeInstances
                   - ec2:DescribeInternetGateways
                   - ec2:DescribeNatGateways
                   - ec2:DescribeNetworkInterfaces
@@ -174,6 +176,8 @@ Resources:
                   - ec2:ReleaseAddress
                   - ec2:RevokeSecurityGroupEgress
                   - ec2:RevokeSecurityGroupIngress
+                  - ec2:RunInstances
+                  - ec2:TerminateInstances
                   - logs:CreateLogGroup
                   - logs:DeleteLogGroup
                   - logs:DescribeLogGroups
@@ -221,18 +225,25 @@ Resources:
               - Sid: IamForSamRoles
                 Effect: Allow
                 Action:
+                  - iam:AddRoleToInstanceProfile
                   - iam:AttachRolePolicy
+                  - iam:CreateInstanceProfile
                   - iam:CreateRole
                   - iam:CreateServiceLinkedRole
+                  - iam:DeleteInstanceProfile
                   - iam:DeleteRole
                   - iam:DeleteRolePolicy
                   - iam:DetachRolePolicy
+                  - iam:GetInstanceProfile
                   - iam:GetRole
                   - iam:GetRolePolicy
+                  - iam:ListInstanceProfiles
+                  - iam:ListInstanceProfilesForRole
                   - iam:ListAttachedRolePolicies
                   - iam:ListRolePolicies
                   - iam:PassRole
                   - iam:PutRolePolicy
+                  - iam:RemoveRoleFromInstanceProfile
                   - iam:TagRole
                   - iam:UntagRole
                   - iam:UpdateAssumeRolePolicy

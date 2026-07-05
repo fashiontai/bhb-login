@@ -67,6 +67,18 @@ Parameters:
     Type: String
     Default: 10.20.20.0/24
     Description: CIDR block for the second private Lambda subnet.
+  BastionAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: Latest Amazon Linux 2023 ARM64 AMI for the SSM bastion.
+  BastionInstanceType:
+    Type: String
+    Default: t4g.nano
+    AllowedValues:
+      - t4g.nano
+      - t4g.micro
+      - t4g.small
+    Description: EC2 instance type for the SSM bastion.
 
 Globals:
   Function:
@@ -247,10 +259,74 @@ Resources:
           IpProtocol: tcp
           SourceSecurityGroupId: !Ref LambdaSecurityGroup
           ToPort: 5432
+        - FromPort: 5432
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+          ToPort: 5432
       Tags:
         - Key: Name
           Value: !Sub "${AWS::StackName}-db-sg"
       VpcId: !Ref AppVpc
+
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for the private SSM database bastion.
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ssm-bastion-sg"
+      VpcId: !Ref AppVpc
+
+  BastionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ssm-bastion-role"
+
+  BastionInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref BastionRole
+
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            Encrypted: true
+            VolumeSize: 8
+            VolumeType: gp3
+      IamInstanceProfile: !Ref BastionInstanceProfile
+      ImageId: !Ref BastionAmiId
+      InstanceType: !Ref BastionInstanceType
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: false
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref BastionSecurityGroup
+          SubnetId: !Ref PrivateSubnetA
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ssm-bastion"
 
   DatabaseSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -383,12 +459,24 @@ Outputs:
   DatabaseSecurityGroupId:
     Description: Database security group ID.
     Value: !Ref DatabaseSecurityGroup
+  BastionInstanceId:
+    Description: Private SSM bastion instance ID for database tunnels.
+    Value: !Ref BastionInstance
+  BastionSecurityGroupId:
+    Description: SSM bastion security group ID.
+    Value: !Ref BastionSecurityGroup
   DatabaseEndpoint:
     Description: Aurora PostgreSQL cluster endpoint address.
     Value: !GetAtt DatabaseCluster.Endpoint.Address
   DatabasePort:
     Description: Aurora PostgreSQL cluster endpoint port.
     Value: !GetAtt DatabaseCluster.Endpoint.Port
+  DatabaseTunnelCommand:
+    Description: Local command to open a PostgreSQL tunnel through Session Manager.
+    Value: !Sub >-
+      aws ssm start-session --region ${AWS::Region} --target ${BastionInstance}
+      --document-name AWS-StartPortForwardingSessionToRemoteHost
+      --parameters '{"host":["${DatabaseCluster.Endpoint.Address}"],"portNumber":["${DatabaseCluster.Endpoint.Port}"],"localPortNumber":["15432"]}'
   DatabaseName:
     Description: RDS PostgreSQL database name.
     Value: !Ref DatabaseName
