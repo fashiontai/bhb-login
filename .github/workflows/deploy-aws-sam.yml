@@ -10,7 +10,7 @@ name: Deploy AWS Backend
 # - DATABASE_USERNAME
 # - DATABASE_MIN_CAPACITY
 # - DATABASE_MAX_CAPACITY
-# - CORS_ORIGIN
+# - FRONTEND_ORIGIN
 
 on:
   push:
@@ -135,10 +135,10 @@ jobs:
           DATABASE_MIN_CAPACITY: ${{ vars.DATABASE_MIN_CAPACITY || '0.5' }}
           DATABASE_MAX_CAPACITY: ${{ vars.DATABASE_MAX_CAPACITY || '1' }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-          CORS_ORIGIN: ${{ vars.CORS_ORIGIN }}
+          FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://fashiontai.online' }}
         run: |
           set -euo pipefail
-          cors_origin="${CORS_ORIGIN:-https://fashiontai.online}"
+          cors_origin="${FRONTEND_ORIGIN}"
           better_auth_url="${cors_origin}"
 
           parameter_overrides=(
@@ -182,10 +182,10 @@ jobs:
           DATABASE_MAX_CAPACITY: ${{ vars.DATABASE_MAX_CAPACITY || '1' }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           API_URL: ${{ steps.stack_outputs.outputs.api_url }}
-          CORS_ORIGIN: ${{ vars.CORS_ORIGIN }}
+          FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://fashiontai.online' }}
         run: |
           set -euo pipefail
-          cors_origin="${CORS_ORIGIN:-https://fashiontai.online}"
+          cors_origin="${FRONTEND_ORIGIN}"
 
           parameter_overrides=(
             "DatabaseName=${DATABASE_NAME}"
