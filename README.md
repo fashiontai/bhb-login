@@ -16,7 +16,6 @@ This project was created with [Better-T-Stack](https://github.com/AmanVarshney01
 - **Authentication** - Better-Auth
 - **Turborepo** - Optimized monorepo build system
 - **Biome** - Linting and formatting
-- **Starlight** - Documentation site with Astro
 
 ## Getting Started
 
@@ -80,14 +79,13 @@ If you want to add app-specific blocks instead of shared primitives, run the sha
 
 ## Project Structure
 
-```
-bhb-login/
-├── apps/
-│   ├── web/         # Frontend application (React + TanStack Router)
-│   ├── docs/        # Documentation site (Astro Starlight)
-│   └── server/      # Backend API (Hono, TRPC)
-├── packages/
-│   ├── ui/          # Shared shadcn/ui components and styles
+	```
+	bhb-login/
+	├── apps/
+	│   ├── web/         # Frontend application (React + TanStack Router)
+	│   └── server/      # Backend API (Hono, TRPC)
+	├── packages/
+	│   ├── ui/          # Shared shadcn/ui components and styles
 │   ├── api/         # API layer / business logic
 │   ├── auth/        # Authentication configuration & logic
 │   └── db/          # Database schema & queries
@@ -105,5 +103,3 @@ bhb-login/
 - `pnpm run db:migrate`: Run database migrations
 - `pnpm run db:studio`: Open database studio UI
 - `pnpm run check`: Run Biome formatting and linting
-- `cd apps/docs && pnpm run dev`: Start documentation site
-- `cd apps/docs && pnpm run build`: Build documentation site
