@@ -82,49 +82,168 @@ Resources:
                   - cloudformation:CreateChangeSet
                   - cloudformation:CreateStack
                   - cloudformation:DeleteChangeSet
+                  - cloudformation:DeleteStack
                   - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResource
+                  - cloudformation:DescribeStackResources
                   - cloudformation:DescribeStacks
                   - cloudformation:ExecuteChangeSet
                   - cloudformation:GetTemplateSummary
+                  - cloudformation:ListStackResources
+                  - cloudformation:ListStacks
                   - cloudformation:UpdateStack
+                  - cloudformation:ValidateTemplate
                 Resource: "*"
               - Sid: SamArtifactBucketAccess
                 Effect: Allow
                 Action:
-                  - s3:*
+                  - s3:CreateBucket
+                  - s3:DeleteBucket
+                  - s3:DeleteBucketPolicy
+                  - s3:DeleteObject
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                  - s3:GetBucketOwnershipControls
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketTagging
+                  - s3:GetBucketVersioning
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetLifecycleConfiguration
+                  - s3:GetObject
+                  - s3:GetPublicAccessBlock
+                  - s3:ListBucket
+                  - s3:PutBucketAcl
+                  - s3:PutBucketOwnershipControls
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketTagging
+                  - s3:PutBucketVersioning
+                  - s3:PutEncryptionConfiguration
+                  - s3:PutLifecycleConfiguration
+                  - s3:PutObject
+                  - s3:PutPublicAccessBlock
+                  - s3:TagResource
+                  - s3:UntagResource
                 Resource: "*"
               - Sid: ServerlessResourceAccess
                 Effect: Allow
                 Action:
-                  - apigateway:*
-                  - cloudfront:CreateCloudFrontOriginAccessIdentity
+                  - apigateway:DELETE
+                  - apigateway:GET
+                  - apigateway:PATCH
+                  - apigateway:POST
+                  - apigateway:PUT
+                  - apigateway:TagResource
+                  - apigateway:UntagResource
                   - cloudfront:CreateDistribution
                   - cloudfront:CreateInvalidation
-                  - cloudfront:DeleteCloudFrontOriginAccessIdentity
+                  - cloudfront:CreateOriginAccessControl
                   - cloudfront:DeleteDistribution
-                  - cloudfront:GetCloudFrontOriginAccessIdentity
+                  - cloudfront:DeleteOriginAccessControl
                   - cloudfront:GetDistribution
                   - cloudfront:GetDistributionConfig
+                  - cloudfront:GetInvalidation
+                  - cloudfront:GetOriginAccessControl
+                  - cloudfront:GetOriginAccessControlConfig
+                  - cloudfront:ListDistributions
+                  - cloudfront:ListInvalidations
+                  - cloudfront:ListOriginAccessControls
+                  - cloudfront:ListTagsForResource
                   - cloudfront:TagResource
-                  - cloudfront:UpdateCloudFrontOriginAccessIdentity
+                  - cloudfront:UntagResource
                   - cloudfront:UpdateDistribution
-                  - ec2:*
-                  - lambda:*
-                  - logs:*
-                  - rds:*
+                  - cloudfront:UpdateOriginAccessControl
+                  - ec2:AllocateAddress
+                  - ec2:AssociateRouteTable
+                  - ec2:AttachInternetGateway
+                  - ec2:AuthorizeSecurityGroupEgress
+                  - ec2:AuthorizeSecurityGroupIngress
+                  - ec2:CreateInternetGateway
+                  - ec2:CreateNatGateway
+                  - ec2:CreateRoute
+                  - ec2:CreateRouteTable
+                  - ec2:CreateSecurityGroup
+                  - ec2:CreateSubnet
+                  - ec2:CreateTags
+                  - ec2:CreateVpc
+                  - ec2:DeleteInternetGateway
+                  - ec2:DeleteNatGateway
+                  - ec2:DeleteRoute
+                  - ec2:DeleteRouteTable
+                  - ec2:DeleteSecurityGroup
+                  - ec2:DeleteSubnet
+                  - ec2:DeleteTags
+                  - ec2:DeleteVpc
+                  - ec2:DescribeAccountAttributes
+                  - ec2:DescribeAddresses
+                  - ec2:DescribeAvailabilityZones
+                  - ec2:DescribeInternetGateways
+                  - ec2:DescribeNatGateways
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeRouteTables
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeVpcs
+                  - ec2:DetachInternetGateway
+                  - ec2:DisassociateRouteTable
+                  - ec2:ModifySubnetAttribute
+                  - ec2:ModifyVpcAttribute
+                  - ec2:ReleaseAddress
+                  - ec2:RevokeSecurityGroupEgress
+                  - ec2:RevokeSecurityGroupIngress
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:DescribeLogGroups
+                  - logs:PutRetentionPolicy
+                  - logs:TagLogGroup
+                  - logs:TagResource
+                  - logs:UntagResource
+                  - lambda:AddPermission
+                  - lambda:CreateFunction
+                  - lambda:DeleteFunction
+                  - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetPolicy
+                  - lambda:ListTags
+                  - lambda:ListVersionsByFunction
+                  - lambda:PublishVersion
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - rds:AddTagsToResource
+                  - rds:CreateDBInstance
+                  - rds:CreateDBSnapshot
+                  - rds:CreateDBSubnetGroup
+                  - rds:DeleteDBInstance
+                  - rds:DeleteDBSnapshot
+                  - rds:DeleteDBSubnetGroup
+                  - rds:DescribeDBInstances
+                  - rds:DescribeDBSnapshots
+                  - rds:DescribeDBSubnetGroups
+                  - rds:ListTagsForResource
+                  - rds:ModifyDBInstance
+                  - rds:ModifyDBSubnetGroup
+                  - rds:RemoveTagsFromResource
                 Resource: "*"
               - Sid: IamForSamRoles
                 Effect: Allow
                 Action:
                   - iam:AttachRolePolicy
                   - iam:CreateRole
+                  - iam:CreateServiceLinkedRole
                   - iam:DeleteRole
                   - iam:DeleteRolePolicy
                   - iam:DetachRolePolicy
                   - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
                   - iam:PassRole
                   - iam:PutRolePolicy
                   - iam:TagRole
+                  - iam:UntagRole
                   - iam:UpdateAssumeRolePolicy
                 Resource: "*"
 
