@@ -92,20 +92,25 @@ jobs:
           role-session-name: bhb-login-sam-deploy
 
       - name: Install dependencies
+        env:
+          DATABASE_URL: postgresql://bhbadmin:${{ secrets.DATABASE_PASSWORD }}@localhost:5432/bhblogin
         run: pnpm install --frozen-lockfile
 
       - name: Check code
         env:
+          DATABASE_URL: postgresql://bhbadmin:${{ secrets.DATABASE_PASSWORD }}@localhost:5432/bhblogin
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
         run: pnpm run check
 
       - name: Check types
         env:
+          DATABASE_URL: postgresql://bhbadmin:${{ secrets.DATABASE_PASSWORD }}@localhost:5432/bhblogin
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
         run: pnpm run check-types
 
       - name: Build application
         env:
+          DATABASE_URL: postgresql://bhbadmin:${{ secrets.DATABASE_PASSWORD }}@localhost:5432/bhblogin
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
         run: pnpm run build
 
