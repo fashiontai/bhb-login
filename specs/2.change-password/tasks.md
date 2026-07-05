@@ -21,7 +21,7 @@
 
 ### 功能 2: 接入 Better Auth 改密
 
-- [ ] T-003: [frontend] 提交接入 `authClient.changePassword({currentPassword,newPassword,revokeOtherSessions:true})`，成功清空表单/失败映射错误 ~30min
+- [x] T-003: [frontend] 提交接入 `authClient.changePassword({currentPassword,newPassword,revokeOtherSessions:true})`，成功清空表单/失败映射错误 ~30min
 
 ### 功能 3: i18n 文案
 
@@ -33,7 +33,7 @@
 
 ### 集成与测试
 
-- [ ] T-006: [test] 端到端核验：当前密码错误报错、成功改密后用新密码重登、旧密码登录失败 ~30min
+- [x] T-006: [test] 端到端核验：当前密码错误报错、成功改密后用新密码重登、旧密码登录失败 ~30min
 
 ## 依赖关系
 

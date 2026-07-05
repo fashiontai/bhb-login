@@ -5,9 +5,12 @@ import {
 	useRouter,
 } from "@tanstack/react-router";
 
+import { toast } from "sonner";
+
 import ChangePasswordForm from "@/components/change-password-form";
 import { useLanguage } from "@/i18n";
 import { authClient } from "@/lib/auth-client";
+import { mapAuthError } from "@/lib/auth-error";
 
 export const Route = createFileRoute("/_auth/dashboard")({
 	component: RouteComponent,
@@ -36,9 +39,17 @@ function RouteComponent() {
 						onClick={() => {
 							authClient.signOut({
 								fetchOptions: {
+									onError: (error) => {
+										toast.error(mapAuthError(error.error, t));
+									},
 									onSuccess: async () => {
-										// 清除路由缓存的会话数据，避免退出后短暂放行受保护路由
-										await router.invalidate();
+										// 清除路由缓存的会话数据，避免退出后短暂放行受保护路由；
+										// invalidate 失败也要跳转，避免签出成功却停在受保护页面
+										try {
+											await router.invalidate();
+										} catch {
+											// 忽略缓存失效异常，继续跳转到登录页
+										}
 										navigate({
 											to: "/login",
 										});

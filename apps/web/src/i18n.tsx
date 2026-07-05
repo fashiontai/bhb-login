@@ -48,10 +48,37 @@ export interface AppTranslations {
 		title: string;
 		welcome: (name?: string | null) => string;
 	};
+	githubProfile: {
+		createdAt: string;
+		errorTitle: string;
+		followers: string;
+		following: string;
+		profileUrl: string;
+		publicRepos: string;
+		resultTitle: string;
+		securityNote: string;
+		submit: string;
+		submitting: string;
+		subtitle: string;
+		tokenHelp: string;
+		tokenLabel: string;
+		tokenPlaceholder: string;
+		title: string;
+		updatedAt: string;
+	};
 	header: {
 		createAccount: string;
 		helpCenter: string;
 		support: string;
+	};
+	samDemo: {
+		apiCardTitle: string;
+		apiLabel: string;
+		error: string;
+		loading: string;
+		refresh: string;
+		subtitle: string;
+		title: string;
 	};
 	signIn: {
 		createAccountCta: string;
@@ -143,10 +170,40 @@ const translations = {
 			title: "控制台",
 			welcome: (name) => `欢迎，${name ?? "用户"}`,
 		},
+		githubProfile: {
+			createdAt: "创建时间",
+			errorTitle: "获取失败",
+			followers: "关注者",
+			following: "正在关注",
+			profileUrl: "GitHub 主页",
+			publicRepos: "公开仓库",
+			resultTitle: "账户信息",
+			securityNote: "Token 只用于本次请求，不会保存在浏览器或数据库中。",
+			submit: "获取 GitHub 信息",
+			submitting: "获取中...",
+			subtitle:
+				"输入个人访问令牌，前端会调用 Hono 接口读取你的 GitHub 账户信息。",
+			tokenHelp:
+				"Fine-grained Token 无需额外权限；经典 Token 需要 user scope 才能读取私有资料字段。",
+			tokenLabel: "GitHub Token",
+			tokenPlaceholder: "ghp_ 或 github_pat_ 开头的个人访问令牌",
+			title: "GitHub 账户关联",
+			updatedAt: "更新时间",
+		},
 		header: {
 			createAccount: "创建账户",
 			helpCenter: "帮助中心",
 			support: "支持",
+		},
+		samDemo: {
+			apiCardTitle: "接口响应",
+			apiLabel: "接口地址",
+			error: "接口请求失败",
+			loading: "请求中...",
+			refresh: "重新请求",
+			subtitle:
+				"这个页面通过前端调用 Hono 接口，用于验证 SAM 部署后的前后端闭环。",
+			title: "SAM 部署演示",
 		},
 		signIn: {
 			createAccountCta: "注册",
@@ -234,10 +291,42 @@ const translations = {
 			title: "Dashboard",
 			welcome: (name) => `Welcome ${name ?? "user"}`,
 		},
+		githubProfile: {
+			createdAt: "Created At",
+			errorTitle: "Request Failed",
+			followers: "Followers",
+			following: "Following",
+			profileUrl: "GitHub Profile",
+			publicRepos: "Public Repositories",
+			resultTitle: "Account Info",
+			securityNote:
+				"The token is only used for this request and is not stored in the browser or database.",
+			submit: "Fetch GitHub Info",
+			submitting: "Fetching...",
+			subtitle:
+				"Enter a personal access token. The frontend will call the Hono API to read your GitHub account.",
+			tokenHelp:
+				"Fine-grained tokens need no extra permissions; classic tokens need the user scope for private profile fields.",
+			tokenLabel: "GitHub Token",
+			tokenPlaceholder:
+				"Personal access token starting with ghp_ or github_pat_",
+			title: "GitHub Account Link",
+			updatedAt: "Updated At",
+		},
 		header: {
 			createAccount: "Create Account",
 			helpCenter: "Help Center",
 			support: "Support",
+		},
+		samDemo: {
+			apiCardTitle: "API Response",
+			apiLabel: "API URL",
+			error: "API request failed",
+			loading: "Loading...",
+			refresh: "Refresh",
+			subtitle:
+				"This page calls a Hono API from the frontend to verify the SAM deployment loop.",
+			title: "SAM Deployment Demo",
 		},
 		signIn: {
 			createAccountCta: "Sign up",

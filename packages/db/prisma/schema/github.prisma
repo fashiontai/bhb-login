@@ -1,0 +1,38 @@
+model GithubAccount {
+  id              String               @id @default(cuid())
+  githubId        Int                  @unique
+  login           String
+  name            String?
+  avatarUrl       String?
+  profileUrl      String
+  bio             String?
+  company         String?
+  blog            String?
+  location        String?
+  email           String?
+  publicRepos     Int
+  followers       Int
+  following       Int
+  githubCreatedAt DateTime
+  githubUpdatedAt DateTime
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  fields          GithubAccountField[]
+
+  @@index([login])
+  @@map("github_account")
+}
+
+model GithubAccountField {
+  id        String        @id @default(cuid())
+  accountId String
+  key       String
+  value     String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  account   GithubAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, key])
+  @@index([accountId])
+  @@map("github_account_field")
+}
