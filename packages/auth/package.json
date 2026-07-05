@@ -1,0 +1,24 @@
+{
+  "name": "@bhb-login/auth",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@bhb-login/db": "workspace:*",
+    "@bhb-login/env": "workspace:*",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@bhb-login/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}
