@@ -91,19 +91,7 @@ Resources:
               - Sid: SamArtifactBucketAccess
                 Effect: Allow
                 Action:
-                  - s3:CreateBucket
-                  - s3:DeleteObject
-                  - s3:GetEncryptionConfiguration
-                  - s3:GetBucketTagging
-                  - s3:GetBucketLocation
-                  - s3:GetObject
-                  - s3:ListBucket
-                  - s3:PutBucketPolicy
-                  - s3:PutBucketTagging
-                  - s3:PutEncryptionConfiguration
-                  - s3:PutObject
-                  - s3:TagResource
-                  - s3:UntagResource
+                  - s3:*
                 Resource: "*"
               - Sid: ServerlessResourceAccess
                 Effect: Allow
