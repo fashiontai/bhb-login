@@ -1,3 +1,26 @@
+# 项目简介
+
+`bhb-login` 是一个基于 Better Auth 的登录系统，提供登录、注册、会话守卫、退出登录与中英文切换能力。前端采用 monorepo 结构，业务页面位于 `apps/web`，可复用 UI 组件位于 `packages/ui`。
+
+## 技术栈与基础设施
+
+本项目以 **AWS 云端资源** 为主承载。主要技术栈说明见架构图：https://www.processon.com/view/link/62e77f4f7d9c08072e6eea09
+
+### 使用的 AWS 架构资源
+
+| 分类 | 服务 | 用途 |
+| --- | --- | --- |
+| 身份与权限 | IAM、IAM Identity Center、Key Management Service (KMS) | 身份认证、访问控制、密钥管理 |
+| 计算 | EC2、Lambda | 服务器实例与无服务器函数 |
+| 接入与网络 | API Gateway、VPC | API 网关与私有网络隔离 |
+| 存储 | S3 | 对象存储 |
+| 数据库 | Aurora and RDS | 关系型数据库 |
+| 事件与集成 | Amazon EventBridge | 事件总线与集成 |
+| AI 服务 | Amazon Bedrock、Amazon Q、Amazon Q Business、Amazon Q Developer | 大模型与 AI 助手能力 |
+| 运维与成本 | Billing and Cost Management | 账单与成本管理 |
+
+---
+
 # Ultracite Code Standards
 
 This project uses **Ultracite**, a zero-config preset that enforces strict code quality standards through automated formatting and linting.
