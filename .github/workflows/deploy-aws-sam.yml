@@ -23,7 +23,7 @@ on:
       aws_region:
         description: AWS Region
         required: false
-        default: us-east-1
+        default: ap-northeast-1
       stack_name:
         description: CloudFormation stack name
         required: false
@@ -34,7 +34,7 @@ permissions:
   id-token: write
 
 env:
-  AWS_REGION: ${{ inputs.aws_region || vars.AWS_REGION || 'us-east-1' }}
+  AWS_REGION: ${{ inputs.aws_region || vars.AWS_REGION || 'ap-northeast-1' }}
   STACK_NAME: ${{ inputs.stack_name || vars.SAM_STACK_NAME || 'bhb-login' }}
   NODE_VERSION: "22"
   PNPM_VERSION: "11.10.0"
