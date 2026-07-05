@@ -10,8 +10,8 @@ name: Deploy AWS SAM
 # Optional GitHub environment variables:
 # - DATABASE_NAME
 # - DATABASE_USERNAME
-# - DATABASE_INSTANCE_CLASS
-# - DATABASE_ALLOCATED_STORAGE
+# - DATABASE_MIN_CAPACITY
+# - DATABASE_MAX_CAPACITY
 # - CLOUDFLARE_PAGES_PROJECT
 # - CORS_ORIGIN
 
@@ -124,22 +124,24 @@ jobs:
           DATABASE_NAME: ${{ vars.DATABASE_NAME || 'bhblogin' }}
           DATABASE_USERNAME: ${{ vars.DATABASE_USERNAME || 'bhbadmin' }}
           DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-          DATABASE_INSTANCE_CLASS: ${{ vars.DATABASE_INSTANCE_CLASS || 'db.t4g.micro' }}
-          DATABASE_ALLOCATED_STORAGE: ${{ vars.DATABASE_ALLOCATED_STORAGE || '20' }}
+          DATABASE_MIN_CAPACITY: ${{ vars.DATABASE_MIN_CAPACITY || '0.5' }}
+          DATABASE_MAX_CAPACITY: ${{ vars.DATABASE_MAX_CAPACITY || '1' }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'bhb-login' }}
           CORS_ORIGIN: ${{ vars.CORS_ORIGIN }}
         run: |
           set -euo pipefail
           cors_origin="${CORS_ORIGIN:-https://${CLOUDFLARE_PAGES_PROJECT}.pages.dev}"
+          better_auth_url="${cors_origin}"
 
           parameter_overrides=(
             "DatabaseName=${DATABASE_NAME}"
             "DatabaseUsername=${DATABASE_USERNAME}"
             "DatabasePassword=${DATABASE_PASSWORD}"
-            "DatabaseInstanceClass=${DATABASE_INSTANCE_CLASS}"
-            "DatabaseAllocatedStorage=${DATABASE_ALLOCATED_STORAGE}"
+            "DatabaseMinCapacity=${DATABASE_MIN_CAPACITY}"
+            "DatabaseMaxCapacity=${DATABASE_MAX_CAPACITY}"
             "BetterAuthSecret=${BETTER_AUTH_SECRET}"
+            "BetterAuthUrl=${better_auth_url}"
             "CorsOrigin=${cors_origin}"
             "NodeEnv=production"
           )
@@ -163,6 +165,42 @@ jobs:
             --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
             --output text)"
           echo "api_url=${api_url}" >> "${GITHUB_OUTPUT}"
+
+      - name: Update API runtime URL
+        env:
+          DATABASE_NAME: ${{ vars.DATABASE_NAME || 'bhblogin' }}
+          DATABASE_USERNAME: ${{ vars.DATABASE_USERNAME || 'bhbadmin' }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+          DATABASE_MIN_CAPACITY: ${{ vars.DATABASE_MIN_CAPACITY || '0.5' }}
+          DATABASE_MAX_CAPACITY: ${{ vars.DATABASE_MAX_CAPACITY || '1' }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          API_URL: ${{ steps.stack_outputs.outputs.api_url }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'bhb-login' }}
+          CORS_ORIGIN: ${{ vars.CORS_ORIGIN }}
+        run: |
+          set -euo pipefail
+          cors_origin="${CORS_ORIGIN:-https://${CLOUDFLARE_PAGES_PROJECT}.pages.dev}"
+
+          parameter_overrides=(
+            "DatabaseName=${DATABASE_NAME}"
+            "DatabaseUsername=${DATABASE_USERNAME}"
+            "DatabasePassword=${DATABASE_PASSWORD}"
+            "DatabaseMinCapacity=${DATABASE_MIN_CAPACITY}"
+            "DatabaseMaxCapacity=${DATABASE_MAX_CAPACITY}"
+            "BetterAuthSecret=${BETTER_AUTH_SECRET}"
+            "BetterAuthUrl=${API_URL}"
+            "CorsOrigin=${cors_origin}"
+            "NodeEnv=production"
+          )
+
+          sam deploy \
+            --stack-name "${STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --resolve-s3 \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides "${parameter_overrides[@]}"
 
       - name: Build web
         env:

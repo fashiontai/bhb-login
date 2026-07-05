@@ -20,21 +20,26 @@ Parameters:
     MaxLength: 64
     AllowedPattern: "^[A-Za-z0-9]+$"
     Description: PostgreSQL master password. Use letters and numbers only.
-  DatabaseInstanceClass:
-    Type: String
-    Default: db.t4g.micro
-    Description: RDS PostgreSQL instance class.
-  DatabaseAllocatedStorage:
+  DatabaseMinCapacity:
     Type: Number
-    Default: 20
-    MinValue: 20
-    MaxValue: 100
-    Description: RDS allocated storage in GiB.
+    Default: 0.5
+    MinValue: 0.5
+    MaxValue: 128
+    Description: Minimum Aurora Serverless v2 capacity in ACUs.
+  DatabaseMaxCapacity:
+    Type: Number
+    Default: 1
+    MinValue: 0.5
+    MaxValue: 128
+    Description: Maximum Aurora Serverless v2 capacity in ACUs.
   BetterAuthSecret:
     Type: String
     NoEcho: true
     MinLength: 32
     Description: Better Auth secret, at least 32 characters.
+  BetterAuthUrl:
+    Type: String
+    Description: Public server URL used by Better Auth.
   CorsOrigin:
     Type: String
     Description: Public web origin allowed by CORS.
@@ -258,26 +263,33 @@ Resources:
         - Key: Name
           Value: !Sub "${AWS::StackName}-db-subnet-group"
 
-  DatabaseInstance:
-    Type: AWS::RDS::DBInstance
+  DatabaseCluster:
+    Type: AWS::RDS::DBCluster
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
     Properties:
-      AllocatedStorage: !Ref DatabaseAllocatedStorage
-      AutoMinorVersionUpgrade: true
       BackupRetentionPeriod: 1
-      DBInstanceClass: !Ref DatabaseInstanceClass
-      DBName: !Ref DatabaseName
+      DatabaseName: !Ref DatabaseName
       DBSubnetGroupName: !Ref DatabaseSubnetGroup
-      Engine: postgres
+      Engine: aurora-postgresql
       EngineVersion: "16.4"
       MasterUsername: !Ref DatabaseUsername
       MasterUserPassword: !Ref DatabasePassword
-      MultiAZ: false
-      PubliclyAccessible: false
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref DatabaseMinCapacity
+        MaxCapacity: !Ref DatabaseMaxCapacity
       StorageEncrypted: true
-      VPCSecurityGroups:
+      VpcSecurityGroupIds:
         - !Ref DatabaseSecurityGroup
+
+  DatabaseInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AutoMinorVersionUpgrade: true
+      DBClusterIdentifier: !Ref DatabaseCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
 
   ApiFunction:
     Type: AWS::Serverless::Function
@@ -300,11 +312,11 @@ Resources:
             - "postgresql://${Username}:${Password}@${Host}:${Port}/${Name}"
             - Username: !Ref DatabaseUsername
               Password: !Ref DatabasePassword
-              Host: !GetAtt DatabaseInstance.Endpoint.Address
-              Port: !GetAtt DatabaseInstance.Endpoint.Port
+              Host: !GetAtt DatabaseCluster.Endpoint.Address
+              Port: !GetAtt DatabaseCluster.Endpoint.Port
               Name: !Ref DatabaseName
           BETTER_AUTH_SECRET: !Ref BetterAuthSecret
-          BETTER_AUTH_URL: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+          BETTER_AUTH_URL: !Ref BetterAuthUrl
           CORS_ORIGIN: !Ref CorsOrigin
       Events:
         Root:
@@ -343,11 +355,11 @@ Outputs:
     Description: Database security group ID.
     Value: !Ref DatabaseSecurityGroup
   DatabaseEndpoint:
-    Description: RDS PostgreSQL endpoint address.
-    Value: !GetAtt DatabaseInstance.Endpoint.Address
+    Description: Aurora PostgreSQL cluster endpoint address.
+    Value: !GetAtt DatabaseCluster.Endpoint.Address
   DatabasePort:
-    Description: RDS PostgreSQL endpoint port.
-    Value: !GetAtt DatabaseInstance.Endpoint.Port
+    Description: Aurora PostgreSQL cluster endpoint port.
+    Value: !GetAtt DatabaseCluster.Endpoint.Port
   DatabaseName:
     Description: RDS PostgreSQL database name.
     Value: !Ref DatabaseName

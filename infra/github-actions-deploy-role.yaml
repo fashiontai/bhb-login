@@ -196,16 +196,23 @@ Resources:
                   - lambda:UpdateFunctionCode
                   - lambda:UpdateFunctionConfiguration
                   - rds:AddTagsToResource
+                  - rds:CreateDBCluster
+                  - rds:CreateDBClusterSnapshot
                   - rds:CreateDBInstance
                   - rds:CreateDBSnapshot
                   - rds:CreateDBSubnetGroup
+                  - rds:DeleteDBCluster
+                  - rds:DeleteDBClusterSnapshot
                   - rds:DeleteDBInstance
                   - rds:DeleteDBSnapshot
                   - rds:DeleteDBSubnetGroup
+                  - rds:DescribeDBClusters
+                  - rds:DescribeDBClusterSnapshots
                   - rds:DescribeDBInstances
                   - rds:DescribeDBSnapshots
                   - rds:DescribeDBSubnetGroups
                   - rds:ListTagsForResource
+                  - rds:ModifyDBCluster
                   - rds:ModifyDBInstance
                   - rds:ModifyDBSubnetGroup
                   - rds:RemoveTagsFromResource
