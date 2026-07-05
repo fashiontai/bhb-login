@@ -7,6 +7,7 @@ import z from "zod";
 
 import { useLanguage } from "@/i18n";
 import { authClient } from "@/lib/auth-client";
+import { mapAuthError } from "@/lib/auth-error";
 
 import Loader from "./loader";
 
@@ -43,7 +44,7 @@ export default function SignUpForm({
 						toast.success(signUpText.success);
 					},
 					onError: (error) => {
-						toast.error(error.error.message || error.error.statusText);
+						toast.error(mapAuthError(error.error, t));
 					},
 				}
 			);

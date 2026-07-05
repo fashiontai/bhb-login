@@ -19,6 +19,26 @@
 | AI 服务 | Amazon Bedrock、Amazon Q、Amazon Q Business、Amazon Q Developer | 大模型与 AI 助手能力 |
 | 运维与成本 | Billing and Cost Management | 账单与成本管理 |
 
+### 环境变量配置
+
+开发过程中新增或依赖的运行参数必须写入项目根目录 `.env`。暂时无法确定真实值时，先写占位值，便于本地启动、类型校验和后续部署对齐；不要把真实密钥、Token、密码等敏感信息写入文档或代码。
+
+---
+
+# 项目踩坑与教训(AGENTS.md)
+
+> 供后续 task 与人类开发者读，只记对后续开发有复用价值的坑/约定/前置步骤/配置陷阱。
+
+- [T-001] Better Auth 的 `emailAndPassword` 里，「注册后是否自动建立会话」由 `autoSignIn`(默认 `true`)控制，「注册前是否强制邮箱验证」由 `requireEmailVerification`(默认 `false`)控制——两者是独立开关，别混淆。本项目不做邮箱验证：显式写 `requireEmailVerification: false` 以表明意图（默认值也是 false，但显式声明避免后续误改），`autoSignIn` 保持默认即注册成功后直接返回会话、无需再手动登录。
+- [T-002] Better Auth 客户端 `onError` 回调的入参多嵌套一层：真正带 `code`/`message`/`statusText` 的对象在 `ctx.error.error` 上，而不是 `ctx.error` 本身（见 sign-in-form.tsx:50 / sign-up-form.tsx:46，design.md 第36行也写明 `error.error.message/code/statusText`）。`mapAuthError(error, t)` 接收的是解开一层后的对象，调用点必须写成 `mapAuthError(error.error, t)`，直接传外层对象会永远匹配不到错误码、只走 fallback。错误码常量来源是 `BASE_ERROR_CODES`（`better-auth/core`），映射表 key 用大写常量名。
+- [T-004] 所有 `authClient` 鉴权调用（`signIn`/`signUp`/`signOut` 等）的 `fetchOptions` 必须 `onSuccess` + `onError` 成对出现，别只写 `onSuccess`。项目约定见 sign-in-form.tsx:43-51、sign-up-form.tsx:39-45，退出登录同样要给出网络错误/5xx 的用户反馈，否则会话可能未真正失效但页面看似已退出、用户无感知——这是 review 反复指出的反模式。
+- [T-004] 把 better-auth 的 `onSuccess` 回调改成 `async` 并在里面 `await`（如 `await router.invalidate()`）时，务必包一层 try/catch：回调抛错会变成 better-auth 内部的未捕获异常，跳过后续的 `navigate({ to: '/login' })`，导致签出成功却停在原页面。兜底做法是 catch 后照样执行跳转。
+- [T-003] Better Auth 对「用户视角同一种错误」会返回**多个不同的错误码**，`AUTH_ERROR_CODE_MAP`（`apps/web/src/lib/auth-error.ts`）必须做**多对一**映射：登录失败一类要同时覆盖 `CREDENTIAL_ACCOUNT_NOT_FOUND`/`INVALID_EMAIL_OR_PASSWORD`/`INVALID_PASSWORD`/`USER_NOT_FOUND` → `invalidCredentials`，邮箱已存在要覆盖 `USER_ALREADY_EXISTS`/`USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL` → `emailExists`；只映一个码会漏掉服务端在不同配置/路径下抛的其它同义码、退回 fallback 文案。另外为防「拿到未知码或 code 缺失」，`mapAuthError` 兜底顺序固定为 `error.message → error.statusText → authErrors.unknown`，新增错误场景优先补 map、不要在组件 onError 里写分支判断。
+- [T-005] i18n 文案是「单一数据源 + 强类型契约」：`apps/web/src/i18n.tsx` 顶部的 `AppTranslations` interface 定义结构，底部 `translations` 对象用 `satisfies Record<Locale, AppTranslations>` 约束。**增删任何一个文案 key 必须三处同改**——interface 声明、`zh-CN`、`en-US`，漏改任一 locale 或 interface 都会 tsc 报错。删 key（如本 task 移除 `signIn.forgotPassword`）时先在组件里删掉所有引用点，再从这三处同步删除；只删组件不删定义会留下死 key，只删定义不删组件会编译失败。
+- [T-006] 受登录保护的页面守卫统一放在 `_auth` 布局路由的 `beforeLoad`（`apps/web/src/routes/_auth/route.tsx`）：`await authClient.getSession()` 后判断 `session.data`（会话真身在 `.data` 上，getSession 返回 `{ data, error }`，不能直接 `if (!session)`），无会话就 `throw redirect({ to: '/login' })`，并 `return { session }` 供子路由复用。**新增需登录的页面一律放进 `apps/web/src/routes/_auth/` 目录、不要每个页面各自写守卫**；根路由 `/`（index.tsx）只做 `throw redirect` 到 `/login`，不承载内容。
+- [T-004] Better Auth 会在**不同 endpoint 复用同一个错误码但语义相反**：`POST /api/auth/change-password` 在 `currentPassword` 不匹配时抛的仍是 `INVALID_PASSWORD`，和 sign-in 完全同码，但文案该是「当前密码错误」而非「邮箱或密码错误」。解法不是在全局 `AUTH_ERROR_CODE_MAP` 里改这个码（会污染登录），而是给 `mapAuthError(error, t, context?)` 加一个可选 `context`（如 `"changePassword"`），用独立的 `CHANGE_PASSWORD_ERROR_CODE_MAP` 做**作用域覆盖**：命中 scoped map 优先、否则回落全局 map、再回落 message/statusText/unknown。新增「同码不同义」的流程时照此加 context 分支，别去动全局映射表。这与 T-003 的「多码同义→合并」是对偶关系，别混用。
+- [T-006] 环境/前置步骤陷阱：任何触达真实写库的运行时核验（注册/登录/退出，即 `POST /api/auth/*`）之前，必须先启动 PostgreSQL 并执行 `pnpm db:push` 应用 User/Session/Account schema，否则请求直接 500（`localhost:5432 ECONNREFUSED`）。本沙箱默认没有 PG/psql 二进制、Docker 守护也未运行——静态检查与「不写库的运行时核验」能过，但注册→自动进 dashboard→退出→登录这类 E2E 写库链路必须人工先备好数据库才能验证，别把此类 AC 当作可在纯沙箱内自动跑通。
+
 ---
 
 # Ultracite Code Standards

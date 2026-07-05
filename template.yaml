@@ -1,0 +1,187 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: BHB Login serverless deployment.
+
+Parameters:
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    Description: Database connection string.
+  BetterAuthSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: Better Auth secret, at least 32 characters.
+  BetterAuthUrl:
+    Type: String
+    Description: Public server URL used by Better Auth.
+  CorsOrigin:
+    Type: String
+    Description: Public web origin allowed by CORS.
+  NodeEnv:
+    Type: String
+    Default: production
+    AllowedValues:
+      - development
+      - production
+      - test
+    Description: Runtime NODE_ENV value.
+  VpcSubnetIds:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: Optional private subnet IDs for Lambda VPC access.
+  VpcSecurityGroupIds:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: Optional security group IDs for Lambda VPC access.
+
+Conditions:
+  HasVpcConfig: !And
+    - !Not [!Equals [!Join ["", !Ref VpcSubnetIds], ""]]
+    - !Not [!Equals [!Join ["", !Ref VpcSecurityGroupIds], ""]]
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Architectures:
+      - arm64
+    Timeout: 30
+    MemorySize: 512
+    Tracing: Active
+    Environment:
+      Variables:
+        NODE_ENV: !Ref NodeEnv
+
+Resources:
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowCredentials: true
+        AllowHeaders:
+          - Authorization
+          - Content-Type
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowOrigins:
+          - !Ref CorsOrigin
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-api"
+      CodeUri: apps/server/dist/
+      Handler: index.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+      VpcConfig: !If
+        - HasVpcConfig
+        - SecurityGroupIds: !Ref VpcSecurityGroupIds
+          SubnetIds: !Ref VpcSubnetIds
+        - !Ref AWS::NoValue
+      Environment:
+        Variables:
+          DATABASE_URL: !Ref DatabaseUrl
+          BETTER_AUTH_SECRET: !Ref BetterAuthSecret
+          BETTER_AUTH_URL: !Ref BetterAuthUrl
+          CORS_ORIGIN: !Ref CorsOrigin
+      Events:
+        Root:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: ANY
+        Proxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  WebOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-web-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  WebDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: WebBucketOrigin
+            DomainName: !GetAtt WebBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt WebOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: WebBucketOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${WebBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}"
+
+Outputs:
+  ApiUrl:
+    Description: HTTP API URL.
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+  WebBucketName:
+    Description: S3 bucket for web assets.
+    Value: !Ref WebBucket
+  WebDistributionId:
+    Description: CloudFront distribution ID.
+    Value: !Ref WebDistribution
+  WebUrl:
+    Description: CloudFront web URL.
+    Value: !Sub "https://${WebDistribution.DomainName}"

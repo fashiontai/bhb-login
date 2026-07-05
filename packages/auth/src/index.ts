@@ -14,6 +14,8 @@ export function createAuth() {
 		trustedOrigins: [env.CORS_ORIGIN],
 		emailAndPassword: {
 			enabled: true,
+			// 暂不考虑邮箱验证/绑定，注册后直接建立会话即可使用（见 specs/1.user-auth-core）
+			requireEmailVerification: false,
 		},
 		secret: env.BETTER_AUTH_SECRET,
 		baseURL: env.BETTER_AUTH_URL,

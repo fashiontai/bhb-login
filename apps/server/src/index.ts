@@ -4,10 +4,11 @@ import { auth } from "@bhb-login/auth";
 import { env } from "@bhb-login/env/server";
 import { trpcServer } from "@hono/trpc-server";
 import { Hono } from "hono";
+import { handle } from "hono/aws-lambda";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
-const app = new Hono();
+export const app = new Hono();
 
 app.use(logger());
 app.use(
@@ -32,14 +33,18 @@ app.use(
 
 app.get("/", (c) => c.text("OK"));
 
-import { serve } from "@hono/node-server";
+export const handler = handle(app);
 
-serve(
-	{
-		fetch: app.fetch,
-		port: 3000,
-	},
-	(info) => {
-		console.log(`Server is running on http://localhost:${info.port}`);
-	}
-);
+if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
+	const { serve } = await import("@hono/node-server");
+
+	serve(
+		{
+			fetch: app.fetch,
+			port: 3000,
+		},
+		(info) => {
+			console.log(`Server is running on http://localhost:${info.port}`);
+		}
+	);
+}

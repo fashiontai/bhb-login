@@ -3,10 +3,17 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 export type Locale = "zh-CN" | "en-US";
 
-interface AppTranslations {
+export interface AppTranslations {
 	app: {
 		description: string;
 		title: string;
+	};
+	authErrors: {
+		emailExists: string;
+		invalidCredentials: string;
+		invalidCurrentPassword: string;
+		passwordTooShort: string;
+		unknown: string;
 	};
 	authShell: {
 		brand: string;
@@ -16,6 +23,18 @@ interface AppTranslations {
 			label: string;
 		}>;
 		navigationLabel: string;
+	};
+	changePassword: {
+		confirmPasswordLabel: string;
+		confirmPasswordPlaceholder: string;
+		currentPasswordLabel: string;
+		currentPasswordPlaceholder: string;
+		newPasswordLabel: string;
+		newPasswordPlaceholder: string;
+		submit: string;
+		submitting: string;
+		success: string;
+		title: string;
 	};
 	common: {
 		languageShortLabel: string;
@@ -38,13 +57,11 @@ interface AppTranslations {
 		createAccountCta: string;
 		emailLabel: string;
 		emailPlaceholder: string;
-		forgotPassword: string;
 		googleNotConfigured: string;
 		googleSubmit: string;
 		noAccount: string;
 		passwordLabel: string;
 		passwordPlaceholder: string;
-		passwordResetNotConfigured: string;
 		submit: string;
 		submitting: string;
 		subtitle: string;
@@ -67,9 +84,12 @@ interface AppTranslations {
 		title: string;
 	};
 	validation: {
+		currentPasswordRequired: string;
 		invalidEmail: string;
 		nameMinLength: string;
+		newPasswordSameAsCurrent: string;
 		passwordMinLength: string;
+		passwordMismatch: string;
 	};
 }
 
@@ -82,6 +102,13 @@ const translations = {
 			description: "BHB 登录系统",
 			title: "BHB 登录",
 		},
+		authErrors: {
+			emailExists: "该邮箱已被注册，请直接登录或更换邮箱",
+			invalidCredentials: "邮箱或密码不正确，请重新输入",
+			invalidCurrentPassword: "当前密码不正确",
+			passwordTooShort: "密码至少需要 8 个字符",
+			unknown: "操作失败，请稍后重试",
+		},
 		authShell: {
 			brand: "BHB 登录",
 			copyright: "© 2026 BHB 登录。保留所有权利。",
@@ -91,6 +118,18 @@ const translations = {
 				{ href: "#", label: "Cookie 政策" },
 			],
 			navigationLabel: "主导航",
+		},
+		changePassword: {
+			confirmPasswordLabel: "确认新密码",
+			confirmPasswordPlaceholder: "********",
+			currentPasswordLabel: "当前密码",
+			currentPasswordPlaceholder: "********",
+			newPasswordLabel: "新密码",
+			newPasswordPlaceholder: "********",
+			submit: "确认修改",
+			submitting: "修改中...",
+			success: "密码修改成功",
+			title: "修改密码",
 		},
 		common: {
 			languageShortLabel: "中",
@@ -113,13 +152,11 @@ const translations = {
 			createAccountCta: "注册",
 			emailLabel: "邮箱地址",
 			emailPlaceholder: "name@company.com",
-			forgotPassword: "忘记密码？",
 			googleNotConfigured: "暂未配置 Google 登录",
 			googleSubmit: "使用 Google 登录",
 			noAccount: "还没有账户？",
 			passwordLabel: "密码",
 			passwordPlaceholder: "********",
-			passwordResetNotConfigured: "暂未配置密码重置",
 			submit: "登录",
 			submitting: "登录中...",
 			subtitle: "访问你的安全门户控制台。",
@@ -142,15 +179,26 @@ const translations = {
 			title: "创建账户",
 		},
 		validation: {
+			currentPasswordRequired: "请输入当前密码",
 			invalidEmail: "请输入有效的邮箱地址",
 			nameMinLength: "姓名至少需要 2 个字符",
+			newPasswordSameAsCurrent: "新密码不能与当前密码相同",
 			passwordMinLength: "密码至少需要 8 个字符",
+			passwordMismatch: "两次输入的密码不一致",
 		},
 	},
 	"en-US": {
 		app: {
 			description: "BHB login system",
 			title: "BHB Login",
+		},
+		authErrors: {
+			emailExists:
+				"This email is already registered. Sign in or use another email.",
+			invalidCredentials: "Incorrect email or password. Please try again.",
+			invalidCurrentPassword: "Current password is incorrect",
+			passwordTooShort: "Password must be at least 8 characters",
+			unknown: "Something went wrong. Please try again later.",
 		},
 		authShell: {
 			brand: "BHB Login",
@@ -161,6 +209,18 @@ const translations = {
 				{ href: "#", label: "Cookie Policy" },
 			],
 			navigationLabel: "Main navigation",
+		},
+		changePassword: {
+			confirmPasswordLabel: "Confirm New Password",
+			confirmPasswordPlaceholder: "********",
+			currentPasswordLabel: "Current Password",
+			currentPasswordPlaceholder: "********",
+			newPasswordLabel: "New Password",
+			newPasswordPlaceholder: "********",
+			submit: "Change Password",
+			submitting: "Changing...",
+			success: "Password changed successfully",
+			title: "Change Password",
 		},
 		common: {
 			languageShortLabel: "EN",
@@ -183,13 +243,11 @@ const translations = {
 			createAccountCta: "Sign up",
 			emailLabel: "Email Address",
 			emailPlaceholder: "name@company.com",
-			forgotPassword: "Forgot password?",
 			googleNotConfigured: "Google sign-in is not configured yet",
 			googleSubmit: "Sign in with Google",
 			noAccount: "Don't have an account?",
 			passwordLabel: "Password",
 			passwordPlaceholder: "********",
-			passwordResetNotConfigured: "Password reset is not configured yet",
 			submit: "Sign In",
 			submitting: "Signing in...",
 			subtitle: "Access your secure portal dashboard.",
@@ -212,9 +270,13 @@ const translations = {
 			title: "Create Account",
 		},
 		validation: {
+			currentPasswordRequired: "Please enter your current password",
 			invalidEmail: "Invalid email address",
 			nameMinLength: "Name must be at least 2 characters",
+			newPasswordSameAsCurrent:
+				"New password must be different from the current password",
 			passwordMinLength: "Password must be at least 8 characters",
+			passwordMismatch: "Passwords do not match",
 		},
 	},
 } satisfies Record<Locale, AppTranslations>;

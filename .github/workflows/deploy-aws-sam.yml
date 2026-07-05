@@ -1,0 +1,171 @@
+name: Deploy AWS SAM
+
+# Required GitHub environment secrets:
+# - AWS_ROLE_TO_ASSUME
+# - DATABASE_URL
+# - BETTER_AUTH_SECRET
+# - BETTER_AUTH_URL
+# - CORS_ORIGIN
+# - VITE_SERVER_URL
+# Optional, for private RDS/Aurora access through VPC:
+# - VPC_SUBNET_IDS
+# - VPC_SECURITY_GROUP_IDS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      aws_region:
+        description: AWS Region
+        required: false
+        default: us-east-1
+      stack_name:
+        description: CloudFormation stack name
+        required: false
+        default: bhb-login
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ inputs.aws_region || vars.AWS_REGION || 'us-east-1' }}
+  STACK_NAME: ${{ inputs.stack_name || vars.SAM_STACK_NAME || 'bhb-login' }}
+  NODE_VERSION: "22"
+  PNPM_VERSION: "11.10.0"
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@${PNPM_VERSION} --activate
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup AWS SAM
+        uses: aws-actions/setup-sam@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate deployment parameters
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
+          CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
+          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
+        run: |
+          set -euo pipefail
+          for name in DATABASE_URL BETTER_AUTH_SECRET BETTER_AUTH_URL CORS_ORIGIN VITE_SERVER_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing GitHub secret: ${name}"
+              exit 1
+            fi
+          done
+
+      - name: Check code
+        env:
+          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
+        run: pnpm run check
+
+      - name: Check types
+        env:
+          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
+        run: pnpm run check-types
+
+      - name: Build application
+        env:
+          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
+        run: pnpm run build
+
+      - name: Validate SAM template
+        run: sam validate --template template.yaml
+
+      - name: Build SAM application
+        run: sam build --template-file template.yaml
+
+      - name: Deploy SAM stack
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
+          CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
+          VPC_SUBNET_IDS: ${{ secrets.VPC_SUBNET_IDS }}
+          VPC_SECURITY_GROUP_IDS: ${{ secrets.VPC_SECURITY_GROUP_IDS }}
+        run: |
+          set -euo pipefail
+
+          parameter_overrides=(
+            "DatabaseUrl=${DATABASE_URL}"
+            "BetterAuthSecret=${BETTER_AUTH_SECRET}"
+            "BetterAuthUrl=${BETTER_AUTH_URL}"
+            "CorsOrigin=${CORS_ORIGIN}"
+            "NodeEnv=production"
+          )
+
+          if [ -n "${VPC_SUBNET_IDS:-}" ] && [ -n "${VPC_SECURITY_GROUP_IDS:-}" ]; then
+            parameter_overrides+=("VpcSubnetIds=${VPC_SUBNET_IDS}")
+            parameter_overrides+=("VpcSecurityGroupIds=${VPC_SECURITY_GROUP_IDS}")
+          fi
+
+          sam deploy \
+            --stack-name "${STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --resolve-s3 \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides "${parameter_overrides[@]}"
+
+      - name: Upload web assets
+        run: |
+          set -euo pipefail
+
+          web_bucket="$(aws cloudformation describe-stacks \
+            --stack-name "${STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --query "Stacks[0].Outputs[?OutputKey=='WebBucketName'].OutputValue" \
+            --output text)"
+
+          distribution_id="$(aws cloudformation describe-stacks \
+            --stack-name "${STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --query "Stacks[0].Outputs[?OutputKey=='WebDistributionId'].OutputValue" \
+            --output text)"
+
+          aws s3 sync apps/web/dist "s3://${web_bucket}" --delete --region "${AWS_REGION}"
+          aws cloudfront create-invalidation --distribution-id "${distribution_id}" --paths "/*"
+
+      - name: Print deployment outputs
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "${STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --query "Stacks[0].Outputs" \
+            --output table

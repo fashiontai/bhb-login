@@ -19,6 +19,10 @@
 | AI 服务 | Amazon Bedrock、Amazon Q、Amazon Q Business、Amazon Q Developer | 大模型与 AI 助手能力 |
 | 运维与成本 | Billing and Cost Management | 账单与成本管理 |
 
+### 环境变量配置
+
+开发过程中新增或依赖的运行参数必须写入项目根目录 `.env`。暂时无法确定真实值时，先写占位值，便于本地启动、类型校验和后续部署对齐；不要把真实密钥、Token、密码等敏感信息写入文档或代码。
+
 ---
 
 # Ultracite Code Standards
@@ -147,3 +151,56 @@ Biome's linter will catch most issues automatically. Focus your attention on:
 ---
 
 Most formatting and common issues are automatically fixed by Biome. Run `pnpm dlx ultracite fix` before committing to ensure compliance.
+
+---
+
+# 常用命令
+
+| 场景 | 命令 |
+| --- | --- |
+| 安装依赖 | `pnpm install` |
+| 启动全部开发服务 | `pnpm run dev` |
+| 仅启动前端 / 后端 | `pnpm run dev:web` / `pnpm run dev:server` |
+| 构建 | `pnpm run build` |
+| 类型检查 | `pnpm run check-types` |
+| 代码检查 / 自动修复 | `pnpm run check` / `pnpm run fix` |
+| Prisma 生成 / 推送 / 迁移 / Studio | `pnpm run db:generate` / `db:push` / `db:migrate` / `db:studio` |
+
+> 包管理器固定为 `pnpm@11.10.0`；任务编排由 Turborepo 驱动，跨包过滤用 `-F <package>`。
+
+# 目录结构
+
+```
+bhb-login/
+├── apps/
+│   ├── web/          # 前端 (React + TanStack Router + Vite + TailwindCSS + shadcn/ui)
+│   └── server/       # 后端 (Hono + tRPC, Node.js 运行时)
+├── packages/
+│   ├── api/          # tRPC 路由与 procedure 定义
+│   ├── auth/         # Better-Auth 认证配置
+│   ├── db/           # Prisma ORM (schema / client / migration)
+│   ├── env/          # 环境变量校验 (zod)
+│   ├── config/       # 共享 TS / 构建配置
+│   └── ui/           # 可复用 UI 组件库 (shadcn/ui)
+├── docs/             # 需求与设计文档 (PRD)
+├── specs/            # 结构化开发规格 (requirements / design / tasks)
+└── .claude/          # Claude 项目配置 (本文件 / rules)
+```
+
+# 开发规范（按需引入）
+
+> 按当前 task 触达的模块/文件类型，动手前阅读对应规则；不必一次性全读。
+
+- @rules/coding-style.md — 编码风格（Ultracite + Biome 2.x + TS strict，全栈通用）
+- @rules/frontend.md — 前端规范（React + TanStack Router + TailwindCSS + shadcn/ui，`apps/web`）
+- @rules/backend-api.md — 后端 API 规范（Hono + tRPC + Better-Auth + Prisma 的 procedure/认证/context/错误处理）
+- @rules/database.md — 数据库与数据模型规范（Prisma + PostgreSQL，`packages/db`）
+- @rules/security.md — 安全规范（认证、授权、密钥、输入校验、CORS/Cookie）
+- @rules/testing.md — 测试规范（前后端测试组织、命名与运行约定）
+- @rules/git-workflow.md — Git 分支、提交、PR 与合并规范
+
+# 引用
+
+> 以下文件记录项目开发中的踩坑与教训，会随开发持续追加，动手前请先阅读。
+
+@AGENTS.md

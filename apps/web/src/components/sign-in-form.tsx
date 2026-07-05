@@ -13,6 +13,7 @@ import z from "zod";
 
 import { useLanguage } from "@/i18n";
 import { authClient } from "@/lib/auth-client";
+import { mapAuthError } from "@/lib/auth-error";
 
 import Loader from "./loader";
 
@@ -47,7 +48,7 @@ export default function SignInForm({
 						toast.success(signInText.success);
 					},
 					onError: (error) => {
-						toast.error(error.error.message || error.error.statusText);
+						toast.error(mapAuthError(error.error, t));
 					},
 				}
 			);
@@ -100,18 +101,6 @@ export default function SignInForm({
 					<form.Field name="password">
 						{(field) => (
 							<AuthField
-								action={
-									<Button
-										className="h-auto p-0 text-xs"
-										onClick={() =>
-											toast.info(signInText.passwordResetNotConfigured)
-										}
-										type="button"
-										variant="link"
-									>
-										{signInText.forgotPassword}
-									</Button>
-								}
 								error={field.state.meta.errors[0]?.message}
 								id={field.name}
 								label={signInText.passwordLabel}
