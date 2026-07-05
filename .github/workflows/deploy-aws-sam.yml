@@ -1,24 +1,35 @@
-name: Deploy AWS SAM
+name: Deploy AWS Backend
 
 # Required GitHub environment secrets:
 # - AWS_ROLE_TO_ASSUME
 # - DATABASE_PASSWORD
 # - BETTER_AUTH_SECRET
-# - CLOUDFLARE_ACCOUNT_ID
-# - CLOUDFLARE_API_TOKEN
 #
 # Optional GitHub environment variables:
 # - DATABASE_NAME
 # - DATABASE_USERNAME
 # - DATABASE_MIN_CAPACITY
 # - DATABASE_MAX_CAPACITY
-# - CLOUDFLARE_PAGES_PROJECT
 # - CORS_ORIGIN
 
 on:
   push:
     branches:
       - main
+    paths:
+      - ".github/workflows/deploy-aws-sam.yml"
+      - "apps/server/**"
+      - "infra/**"
+      - "packages/api/**"
+      - "packages/auth/**"
+      - "packages/config/**"
+      - "packages/db/**"
+      - "packages/env/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "template.yaml"
+      - "turbo.json"
   workflow_dispatch:
     inputs:
       aws_region:
@@ -42,7 +53,7 @@ env:
 
 jobs:
   deploy:
-    name: Build and deploy
+    name: Build and deploy backend
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -73,11 +84,9 @@ jobs:
           AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           set -euo pipefail
-          for name in AWS_ROLE_TO_ASSUME DATABASE_PASSWORD BETTER_AUTH_SECRET CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN; do
+          for name in AWS_ROLE_TO_ASSUME DATABASE_PASSWORD BETTER_AUTH_SECRET; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing GitHub secret: ${name}"
               exit 1
@@ -105,8 +114,7 @@ jobs:
       - name: Check types
         env:
           DATABASE_URL: postgresql://bhbadmin:${{ secrets.DATABASE_PASSWORD }}@localhost:5432/bhblogin
-          VITE_SERVER_URL: http://localhost:3000
-        run: pnpm run check-types
+        run: pnpm --filter server check-types
 
       - name: Build server
         env:
@@ -127,11 +135,10 @@ jobs:
           DATABASE_MIN_CAPACITY: ${{ vars.DATABASE_MIN_CAPACITY || '0.5' }}
           DATABASE_MAX_CAPACITY: ${{ vars.DATABASE_MAX_CAPACITY || '1' }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'bhb-login' }}
           CORS_ORIGIN: ${{ vars.CORS_ORIGIN }}
         run: |
           set -euo pipefail
-          cors_origin="${CORS_ORIGIN:-https://${CLOUDFLARE_PAGES_PROJECT}.pages.dev}"
+          cors_origin="${CORS_ORIGIN:-https://fashiontai.online}"
           better_auth_url="${cors_origin}"
 
           parameter_overrides=(
@@ -175,11 +182,10 @@ jobs:
           DATABASE_MAX_CAPACITY: ${{ vars.DATABASE_MAX_CAPACITY || '1' }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           API_URL: ${{ steps.stack_outputs.outputs.api_url }}
-          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'bhb-login' }}
           CORS_ORIGIN: ${{ vars.CORS_ORIGIN }}
         run: |
           set -euo pipefail
-          cors_origin="${CORS_ORIGIN:-https://${CLOUDFLARE_PAGES_PROJECT}.pages.dev}"
+          cors_origin="${CORS_ORIGIN:-https://fashiontai.online}"
 
           parameter_overrides=(
             "DatabaseName=${DATABASE_NAME}"
@@ -222,22 +228,6 @@ jobs:
               process.exit(1);
             }
           '
-
-      - name: Build web
-        env:
-          VITE_SERVER_URL: ${{ steps.stack_outputs.outputs.api_url }}
-        run: pnpm --filter web build
-
-      - name: Deploy web to Cloudflare Pages
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'bhb-login' }}
-        run: |
-          set -euo pipefail
-          pnpm dlx wrangler@latest pages deploy apps/web/dist \
-            --project-name="${CLOUDFLARE_PAGES_PROJECT}" \
-            --branch="${GITHUB_REF_NAME}"
 
       - name: Print deployment outputs
         run: |
