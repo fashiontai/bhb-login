@@ -187,6 +187,7 @@ Resources:
                   - lambda:GetFunction
                   - lambda:GetFunctionConfiguration
                   - lambda:GetPolicy
+                  - lambda:InvokeFunction
                   - lambda:ListTags
                   - lambda:ListVersionsByFunction
                   - lambda:PublishVersion

@@ -13,6 +13,7 @@
     "dev:web": "turbo run dev -F web",
     "dev:server": "turbo run dev -F server",
     "db:push": "turbo run db:push -F @bhb-login/db",
+    "db:deploy": "turbo run db:deploy -F @bhb-login/db",
     "db:studio": "turbo run db:studio -F @bhb-login/db",
     "db:generate": "turbo run db:generate -F @bhb-login/db",
     "db:migrate": "turbo run db:migrate -F @bhb-login/db",

@@ -202,6 +202,27 @@ jobs:
             --no-fail-on-empty-changeset \
             --parameter-overrides "${parameter_overrides[@]}"
 
+      - name: Run database migrations
+        run: |
+          set -euo pipefail
+          aws lambda invoke \
+            --function-name "${STACK_NAME}-migrate" \
+            --payload '{}' \
+            --cli-binary-format raw-in-base64-out \
+            migration-response.json > migration-invoke.json
+
+          cat migration-response.json
+
+          node -e '
+            const fs = require("node:fs");
+            const invoke = JSON.parse(fs.readFileSync("migration-invoke.json", "utf8"));
+            const response = JSON.parse(fs.readFileSync("migration-response.json", "utf8"));
+            if (invoke.FunctionError || response.ok !== true) {
+              console.error(JSON.stringify({ invoke, response }, null, 2));
+              process.exit(1);
+            }
+          '
+
       - name: Build web
         env:
           VITE_SERVER_URL: ${{ steps.stack_outputs.outputs.api_url }}

@@ -332,6 +332,35 @@ Resources:
             Path: /{proxy+}
             Method: ANY
 
+  MigrationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-migrate"
+      CodeUri: apps/server/dist/
+      Handler: index.migrationHandler
+      Timeout: 120
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - AWSLambdaVPCAccessExecutionRole
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+      Environment:
+        Variables:
+          DATABASE_URL: !Sub
+            - "postgresql://${Username}:${Password}@${Host}:${Port}/${Name}"
+            - Username: !Ref DatabaseUsername
+              Password: !Ref DatabasePassword
+              Host: !GetAtt DatabaseCluster.Endpoint.Address
+              Port: !GetAtt DatabaseCluster.Endpoint.Port
+              Name: !Ref DatabaseName
+          BETTER_AUTH_SECRET: !Ref BetterAuthSecret
+          BETTER_AUTH_URL: !Ref BetterAuthUrl
+          CORS_ORIGIN: !Ref CorsOrigin
+
 Outputs:
   AppVpcId:
     Description: Application VPC ID.

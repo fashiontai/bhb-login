@@ -2,6 +2,7 @@ import { createContext } from "@bhb-login/api/context";
 import { appRouter } from "@bhb-login/api/routers/index";
 import { auth } from "@bhb-login/auth";
 import db from "@bhb-login/db";
+import { runDatabaseMigrations } from "@bhb-login/db/migrations";
 import { env } from "@bhb-login/env/server";
 import { trpcServer } from "@hono/trpc-server";
 import { Hono } from "hono";
@@ -417,6 +418,15 @@ app.delete("/api/github/accounts/:accountId/fields/:fieldId", async (c) => {
 });
 
 export const handler = handle(app);
+
+export const migrationHandler = async () => {
+	const result = await runDatabaseMigrations();
+
+	return {
+		ok: true,
+		...result,
+	};
+};
 
 if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
 	const { serve } = await import("@hono/node-server");
