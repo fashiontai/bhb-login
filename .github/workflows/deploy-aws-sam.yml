@@ -4,15 +4,16 @@ name: Deploy AWS SAM
 # - AWS_ROLE_TO_ASSUME
 # - DATABASE_PASSWORD
 # - BETTER_AUTH_SECRET
-# - BETTER_AUTH_URL
-# - CORS_ORIGIN
-# - VITE_SERVER_URL
+# - CLOUDFLARE_ACCOUNT_ID
+# - CLOUDFLARE_API_TOKEN
 #
 # Optional GitHub environment variables:
 # - DATABASE_NAME
 # - DATABASE_USERNAME
 # - DATABASE_INSTANCE_CLASS
 # - DATABASE_ALLOCATED_STORAGE
+# - CLOUDFLARE_PAGES_PROJECT
+# - CORS_ORIGIN
 
 on:
   push:
@@ -72,12 +73,11 @@ jobs:
           AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-          BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
-          CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
-          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           set -euo pipefail
-          for name in AWS_ROLE_TO_ASSUME DATABASE_PASSWORD BETTER_AUTH_SECRET BETTER_AUTH_URL CORS_ORIGIN VITE_SERVER_URL; do
+          for name in AWS_ROLE_TO_ASSUME DATABASE_PASSWORD BETTER_AUTH_SECRET CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing GitHub secret: ${name}"
               exit 1
@@ -99,20 +99,19 @@ jobs:
       - name: Check code
         env:
           DATABASE_URL: postgresql://bhbadmin:${{ secrets.DATABASE_PASSWORD }}@localhost:5432/bhblogin
-          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
+          VITE_SERVER_URL: http://localhost:3000
         run: pnpm run check
 
       - name: Check types
         env:
           DATABASE_URL: postgresql://bhbadmin:${{ secrets.DATABASE_PASSWORD }}@localhost:5432/bhblogin
-          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
+          VITE_SERVER_URL: http://localhost:3000
         run: pnpm run check-types
 
-      - name: Build application
+      - name: Build server
         env:
           DATABASE_URL: postgresql://bhbadmin:${{ secrets.DATABASE_PASSWORD }}@localhost:5432/bhblogin
-          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
-        run: pnpm run build
+        run: pnpm --filter server build
 
       - name: Validate SAM template
         run: sam validate --template template.yaml
@@ -128,10 +127,11 @@ jobs:
           DATABASE_INSTANCE_CLASS: ${{ vars.DATABASE_INSTANCE_CLASS || 'db.t4g.micro' }}
           DATABASE_ALLOCATED_STORAGE: ${{ vars.DATABASE_ALLOCATED_STORAGE || '20' }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-          BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
-          CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'bhb-login' }}
+          CORS_ORIGIN: ${{ vars.CORS_ORIGIN }}
         run: |
           set -euo pipefail
+          cors_origin="${CORS_ORIGIN:-https://${CLOUDFLARE_PAGES_PROJECT}.pages.dev}"
 
           parameter_overrides=(
             "DatabaseName=${DATABASE_NAME}"
@@ -140,8 +140,7 @@ jobs:
             "DatabaseInstanceClass=${DATABASE_INSTANCE_CLASS}"
             "DatabaseAllocatedStorage=${DATABASE_ALLOCATED_STORAGE}"
             "BetterAuthSecret=${BETTER_AUTH_SECRET}"
-            "BetterAuthUrl=${BETTER_AUTH_URL}"
-            "CorsOrigin=${CORS_ORIGIN}"
+            "CorsOrigin=${cors_origin}"
             "NodeEnv=production"
           )
 
@@ -154,24 +153,32 @@ jobs:
             --no-fail-on-empty-changeset \
             --parameter-overrides "${parameter_overrides[@]}"
 
-      - name: Upload web assets
+      - name: Read deployment outputs
+        id: stack_outputs
         run: |
           set -euo pipefail
-
-          web_bucket="$(aws cloudformation describe-stacks \
+          api_url="$(aws cloudformation describe-stacks \
             --stack-name "${STACK_NAME}" \
             --region "${AWS_REGION}" \
-            --query "Stacks[0].Outputs[?OutputKey=='WebBucketName'].OutputValue" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
             --output text)"
+          echo "api_url=${api_url}" >> "${GITHUB_OUTPUT}"
 
-          distribution_id="$(aws cloudformation describe-stacks \
-            --stack-name "${STACK_NAME}" \
-            --region "${AWS_REGION}" \
-            --query "Stacks[0].Outputs[?OutputKey=='WebDistributionId'].OutputValue" \
-            --output text)"
+      - name: Build web
+        env:
+          VITE_SERVER_URL: ${{ steps.stack_outputs.outputs.api_url }}
+        run: pnpm --filter web build
 
-          aws s3 sync apps/web/dist "s3://${web_bucket}" --delete --region "${AWS_REGION}"
-          aws cloudfront create-invalidation --distribution-id "${distribution_id}" --paths "/*"
+      - name: Deploy web to Cloudflare Pages
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'bhb-login' }}
+        run: |
+          set -euo pipefail
+          pnpm dlx wrangler@latest pages deploy apps/web/dist \
+            --project-name="${CLOUDFLARE_PAGES_PROJECT}" \
+            --branch="${GITHUB_REF_NAME}"
 
       - name: Print deployment outputs
         run: |
