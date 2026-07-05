@@ -2,14 +2,17 @@ name: Deploy AWS SAM
 
 # Required GitHub environment secrets:
 # - AWS_ROLE_TO_ASSUME
-# - DATABASE_URL
+# - DATABASE_PASSWORD
 # - BETTER_AUTH_SECRET
 # - BETTER_AUTH_URL
 # - CORS_ORIGIN
 # - VITE_SERVER_URL
-# Optional, for private RDS/Aurora access through VPC:
-# - VPC_SUBNET_IDS
-# - VPC_SECURITY_GROUP_IDS
+#
+# Optional GitHub environment variables:
+# - DATABASE_NAME
+# - DATABASE_USERNAME
+# - DATABASE_INSTANCE_CLASS
+# - DATABASE_ALLOCATED_STORAGE
 
 on:
   push:
@@ -75,14 +78,14 @@ jobs:
 
       - name: Validate deployment parameters
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
           CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
         run: |
           set -euo pipefail
-          for name in DATABASE_URL BETTER_AUTH_SECRET BETTER_AUTH_URL CORS_ORIGIN VITE_SERVER_URL; do
+          for name in DATABASE_PASSWORD BETTER_AUTH_SECRET BETTER_AUTH_URL CORS_ORIGIN VITE_SERVER_URL; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing GitHub secret: ${name}"
               exit 1
@@ -112,27 +115,28 @@ jobs:
 
       - name: Deploy SAM stack
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_NAME: ${{ vars.DATABASE_NAME || 'bhblogin' }}
+          DATABASE_USERNAME: ${{ vars.DATABASE_USERNAME || 'bhbadmin' }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+          DATABASE_INSTANCE_CLASS: ${{ vars.DATABASE_INSTANCE_CLASS || 'db.t4g.micro' }}
+          DATABASE_ALLOCATED_STORAGE: ${{ vars.DATABASE_ALLOCATED_STORAGE || '20' }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
           CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
-          VPC_SUBNET_IDS: ${{ secrets.VPC_SUBNET_IDS }}
-          VPC_SECURITY_GROUP_IDS: ${{ secrets.VPC_SECURITY_GROUP_IDS }}
         run: |
           set -euo pipefail
 
           parameter_overrides=(
-            "DatabaseUrl=${DATABASE_URL}"
+            "DatabaseName=${DATABASE_NAME}"
+            "DatabaseUsername=${DATABASE_USERNAME}"
+            "DatabasePassword=${DATABASE_PASSWORD}"
+            "DatabaseInstanceClass=${DATABASE_INSTANCE_CLASS}"
+            "DatabaseAllocatedStorage=${DATABASE_ALLOCATED_STORAGE}"
             "BetterAuthSecret=${BETTER_AUTH_SECRET}"
             "BetterAuthUrl=${BETTER_AUTH_URL}"
             "CorsOrigin=${CORS_ORIGIN}"
             "NodeEnv=production"
           )
-
-          if [ -n "${VPC_SUBNET_IDS:-}" ] && [ -n "${VPC_SECURITY_GROUP_IDS:-}" ]; then
-            parameter_overrides+=("VpcSubnetIds=${VPC_SUBNET_IDS}")
-            parameter_overrides+=("VpcSecurityGroupIds=${VPC_SECURITY_GROUP_IDS}")
-          fi
 
           sam deploy \
             --stack-name "${STACK_NAME}" \

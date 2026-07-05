@@ -3,10 +3,33 @@ Transform: AWS::Serverless-2016-10-31
 Description: BHB Login serverless deployment.
 
 Parameters:
-  DatabaseUrl:
+  DatabaseName:
+    Type: String
+    Default: bhblogin
+    AllowedPattern: "^[A-Za-z][A-Za-z0-9_]{0,62}$"
+    Description: PostgreSQL database name for the application.
+  DatabaseUsername:
+    Type: String
+    Default: bhbadmin
+    AllowedPattern: "^[A-Za-z][A-Za-z0-9_]{0,62}$"
+    Description: PostgreSQL master username.
+  DatabasePassword:
     Type: String
     NoEcho: true
-    Description: Database connection string.
+    MinLength: 16
+    MaxLength: 64
+    AllowedPattern: "^[A-Za-z0-9]+$"
+    Description: PostgreSQL master password. Use letters and numbers only.
+  DatabaseInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    Description: RDS PostgreSQL instance class.
+  DatabaseAllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 100
+    Description: RDS allocated storage in GiB.
   BetterAuthSecret:
     Type: String
     NoEcho: true
@@ -26,19 +49,22 @@ Parameters:
       - production
       - test
     Description: Runtime NODE_ENV value.
-  VpcSubnetIds:
-    Type: CommaDelimitedList
-    Default: ""
-    Description: Optional private subnet IDs for Lambda VPC access.
-  VpcSecurityGroupIds:
-    Type: CommaDelimitedList
-    Default: ""
-    Description: Optional security group IDs for Lambda VPC access.
-
-Conditions:
-  HasVpcConfig: !And
-    - !Not [!Equals [!Join ["", !Ref VpcSubnetIds], ""]]
-    - !Not [!Equals [!Join ["", !Ref VpcSecurityGroupIds], ""]]
+  VpcCidr:
+    Type: String
+    Default: 10.20.0.0/16
+    Description: CIDR block for the application VPC.
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.20.0.0/24
+    Description: CIDR block for the public subnet.
+  PrivateSubnetACidr:
+    Type: String
+    Default: 10.20.10.0/24
+    Description: CIDR block for the first private Lambda subnet.
+  PrivateSubnetBCidr:
+    Type: String
+    Default: 10.20.20.0/24
+    Description: CIDR block for the second private Lambda subnet.
 
 Globals:
   Function:
@@ -53,6 +79,135 @@ Globals:
         NODE_ENV: !Ref NodeEnv
 
 Resources:
+  AppVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-igw"
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref AppVpc
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ""
+      CidrBlock: !Ref PublicSubnetCidr
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-public-a"
+      VpcId: !Ref AppVpc
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ""
+      CidrBlock: !Ref PrivateSubnetACidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-private-a"
+      VpcId: !Ref AppVpc
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs ""
+      CidrBlock: !Ref PrivateSubnetBCidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-private-b"
+      VpcId: !Ref AppVpc
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-public-rt"
+      VpcId: !Ref AppVpc
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  NatGatewayEip:
+    Type: AWS::EC2::EIP
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-nat-eip"
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEip.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-nat"
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-private-rt"
+      VpcId: !Ref AppVpc
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetA
+
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetB
+
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -62,11 +217,70 @@ Resources:
           - Authorization
           - Content-Type
         AllowMethods:
+          - DELETE
           - GET
           - POST
           - OPTIONS
         AllowOrigins:
           - !Ref CorsOrigin
+
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for the BHB Login Lambda function.
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-lambda-sg"
+      VpcId: !Ref AppVpc
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for the BHB Login database.
+      SecurityGroupIngress:
+        - FromPort: 5432
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+          ToPort: 5432
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-db-sg"
+      VpcId: !Ref AppVpc
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private subnets for the BHB Login database.
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-db-subnet-group"
+
+  DatabaseInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      AllocatedStorage: !Ref DatabaseAllocatedStorage
+      AutoMinorVersionUpgrade: true
+      BackupRetentionPeriod: 1
+      DBInstanceClass: !Ref DatabaseInstanceClass
+      DBName: !Ref DatabaseName
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      Engine: postgres
+      EngineVersion: "16.4"
+      MasterUsername: !Ref DatabaseUsername
+      MasterUserPassword: !Ref DatabasePassword
+      MultiAZ: false
+      PubliclyAccessible: false
+      StorageEncrypted: true
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroup
 
   ApiFunction:
     Type: AWS::Serverless::Function
@@ -76,14 +290,22 @@ Resources:
       Handler: index.handler
       Policies:
         - AWSLambdaBasicExecutionRole
-      VpcConfig: !If
-        - HasVpcConfig
-        - SecurityGroupIds: !Ref VpcSecurityGroupIds
-          SubnetIds: !Ref VpcSubnetIds
-        - !Ref AWS::NoValue
+        - AWSLambdaVPCAccessExecutionRole
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
       Environment:
         Variables:
-          DATABASE_URL: !Ref DatabaseUrl
+          DATABASE_URL: !Sub
+            - "postgresql://${Username}:${Password}@${Host}:${Port}/${Name}"
+            - Username: !Ref DatabaseUsername
+              Password: !Ref DatabasePassword
+              Host: !GetAtt DatabaseInstance.Endpoint.Address
+              Port: !GetAtt DatabaseInstance.Endpoint.Port
+              Name: !Ref DatabaseName
           BETTER_AUTH_SECRET: !Ref BetterAuthSecret
           BETTER_AUTH_URL: !Ref BetterAuthUrl
           CORS_ORIGIN: !Ref CorsOrigin
@@ -173,6 +395,36 @@ Resources:
                 AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}"
 
 Outputs:
+  AppVpcId:
+    Description: Application VPC ID.
+    Value: !Ref AppVpc
+  PublicSubnetId:
+    Description: Public subnet ID for NAT Gateway.
+    Value: !Ref PublicSubnet
+  PrivateSubnetAId:
+    Description: First private subnet ID for Lambda.
+    Value: !Ref PrivateSubnetA
+  PrivateSubnetBId:
+    Description: Second private subnet ID for Lambda.
+    Value: !Ref PrivateSubnetB
+  NatGatewayId:
+    Description: NAT Gateway ID for private subnet outbound access.
+    Value: !Ref NatGateway
+  LambdaSecurityGroupId:
+    Description: Lambda security group ID.
+    Value: !Ref LambdaSecurityGroup
+  DatabaseSecurityGroupId:
+    Description: Database security group ID.
+    Value: !Ref DatabaseSecurityGroup
+  DatabaseEndpoint:
+    Description: RDS PostgreSQL endpoint address.
+    Value: !GetAtt DatabaseInstance.Endpoint.Address
+  DatabasePort:
+    Description: RDS PostgreSQL endpoint port.
+    Value: !GetAtt DatabaseInstance.Endpoint.Port
+  DatabaseName:
+    Description: RDS PostgreSQL database name.
+    Value: !Ref DatabaseName
   ApiUrl:
     Description: HTTP API URL.
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"

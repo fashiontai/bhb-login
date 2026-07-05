@@ -49,13 +49,28 @@ export interface AppTranslations {
 		welcome: (name?: string | null) => string;
 	};
 	githubProfile: {
+		accountDeleted: string;
+		accountListTitle: string;
+		addField: string;
 		createdAt: string;
+		delete: string;
+		deleteField: string;
 		errorTitle: string;
+		fieldDeleted: string;
+		fieldKeyLabel: string;
+		fieldKeyPlaceholder: string;
+		fieldSaved: string;
+		fieldValueLabel: string;
+		fieldValuePlaceholder: string;
 		followers: string;
 		following: string;
+		loadAccountsFailed: string;
+		noSavedAccounts: string;
 		profileUrl: string;
 		publicRepos: string;
 		resultTitle: string;
+		saveAccount: string;
+		savedAccount: string;
 		securityNote: string;
 		submit: string;
 		submitting: string;
@@ -171,13 +186,28 @@ const translations = {
 			welcome: (name) => `欢迎，${name ?? "用户"}`,
 		},
 		githubProfile: {
+			accountDeleted: "账户已删除",
+			accountListTitle: "已保存账户",
+			addField: "新增字段",
 			createdAt: "创建时间",
+			delete: "删除",
+			deleteField: "删除字段",
 			errorTitle: "获取失败",
+			fieldDeleted: "字段已删除",
+			fieldKeyLabel: "字段名",
+			fieldKeyPlaceholder: "例如：部门",
+			fieldSaved: "字段已保存",
+			fieldValueLabel: "字段值",
+			fieldValuePlaceholder: "例如：研发部",
 			followers: "关注者",
 			following: "正在关注",
+			loadAccountsFailed: "加载已保存账户失败",
+			noSavedAccounts: "暂无已保存账户",
 			profileUrl: "GitHub 主页",
 			publicRepos: "公开仓库",
 			resultTitle: "账户信息",
+			saveAccount: "保存到账户表",
+			savedAccount: "账户已保存",
 			securityNote: "Token 只用于本次请求，不会保存在浏览器或数据库中。",
 			submit: "获取 GitHub 信息",
 			submitting: "获取中...",
@@ -292,13 +322,28 @@ const translations = {
 			welcome: (name) => `Welcome ${name ?? "user"}`,
 		},
 		githubProfile: {
+			accountDeleted: "Account deleted",
+			accountListTitle: "Saved Accounts",
+			addField: "Add Field",
 			createdAt: "Created At",
+			delete: "Delete",
+			deleteField: "Delete Field",
 			errorTitle: "Request Failed",
+			fieldDeleted: "Field deleted",
+			fieldKeyLabel: "Field Key",
+			fieldKeyPlaceholder: "Example: department",
+			fieldSaved: "Field saved",
+			fieldValueLabel: "Field Value",
+			fieldValuePlaceholder: "Example: engineering",
 			followers: "Followers",
 			following: "Following",
+			loadAccountsFailed: "Failed to load saved accounts",
+			noSavedAccounts: "No saved accounts yet",
 			profileUrl: "GitHub Profile",
 			publicRepos: "Public Repositories",
 			resultTitle: "Account Info",
+			saveAccount: "Save to Account Table",
+			savedAccount: "Account saved",
 			securityNote:
 				"The token is only used for this request and is not stored in the browser or database.",
 			submit: "Fetch GitHub Info",
