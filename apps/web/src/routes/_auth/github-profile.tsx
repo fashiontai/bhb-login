@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import LanguageToggle from "@/components/language-toggle";
 import { useLanguage } from "@/i18n";
 
-export const Route = createFileRoute("/github-profile")({
+export const Route = createFileRoute("/_auth/github-profile")({
 	component: RouteComponent,
 });
 
@@ -153,7 +153,9 @@ function RouteComponent() {
 
 	const loadAccounts = useCallback(async () => {
 		try {
-			const response = await fetch(accountsApiUrl);
+			const response = await fetch(accountsApiUrl, {
+				credentials: "include",
+			});
 			const payload = (await response.json()) as unknown;
 
 			if (!response.ok) {
@@ -183,6 +185,7 @@ function RouteComponent() {
 		try {
 			const response = await fetch(apiUrl, {
 				body: JSON.stringify({ token: token.trim() }),
+				credentials: "include",
 				headers: {
 					"Content-Type": "application/json",
 				},
@@ -218,6 +221,7 @@ function RouteComponent() {
 		try {
 			const response = await fetch(accountsApiUrl, {
 				body: JSON.stringify({ token: token.trim() }),
+				credentials: "include",
 				headers: {
 					"Content-Type": "application/json",
 				},
@@ -257,6 +261,7 @@ function RouteComponent() {
 			const response = await fetch(
 				`${accountsApiUrl}/${encodeURIComponent(accountId)}`,
 				{
+					credentials: "include",
 					method: "DELETE",
 				}
 			);
@@ -296,6 +301,7 @@ function RouteComponent() {
 						key: draft.key.trim(),
 						value: draft.value.trim(),
 					}),
+					credentials: "include",
 					headers: {
 						"Content-Type": "application/json",
 					},
@@ -351,6 +357,7 @@ function RouteComponent() {
 			const response = await fetch(
 				`${accountsApiUrl}/${encodeURIComponent(accountId)}/fields/${encodeURIComponent(fieldId)}`,
 				{
+					credentials: "include",
 					method: "DELETE",
 				}
 			);

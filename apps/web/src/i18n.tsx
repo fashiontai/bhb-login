@@ -44,6 +44,8 @@ export interface AppTranslations {
 		switchToLanguage: string;
 	};
 	dashboard: {
+		githubAccounts: string;
+		personalIntroduction: string;
 		signOut: string;
 		title: string;
 		welcome: (name?: string | null) => string;
@@ -85,6 +87,20 @@ export interface AppTranslations {
 		createAccount: string;
 		helpCenter: string;
 		support: string;
+	};
+	introduction: {
+		back: string;
+		empty: string;
+		generate: string;
+		generateFailed: string;
+		generating: string;
+		loadFailed: string;
+		loadPublic: string;
+		subtitle: string;
+		title: string;
+		usernameLabel: string;
+		usernamePlaceholder: string;
+		viewProfile: string;
 	};
 	samDemo: {
 		apiCardTitle: string;
@@ -181,6 +197,8 @@ const translations = {
 			switchToLanguage: "切换到英文",
 		},
 		dashboard: {
+			githubAccounts: "GitHub 账户管理",
+			personalIntroduction: "生成个人介绍",
 			signOut: "退出登录",
 			title: "控制台",
 			welcome: (name) => `欢迎，${name ?? "用户"}`,
@@ -219,6 +237,21 @@ const translations = {
 			tokenPlaceholder: "ghp_ 或 github_pat_ 开头的个人访问令牌",
 			title: "GitHub 账户关联",
 			updatedAt: "更新时间",
+		},
+		introduction: {
+			back: "返回控制台",
+			empty: "输入 GitHub 用户名，生成并保存一份个人介绍。",
+			generate: "生成并保存",
+			generateFailed: "生成个人介绍失败",
+			generating: "生成中...",
+			loadFailed: "读取公开介绍失败",
+			loadPublic: "读取公开版本",
+			subtitle:
+				"登录用户可以生成并保存介绍；已生成的内容可以通过 Go 服务的公开只读接口访问。",
+			title: "GitHub 个人介绍",
+			usernameLabel: "GitHub 用户名",
+			usernamePlaceholder: "例如：fashiontai",
+			viewProfile: "查看 GitHub 主页",
 		},
 		header: {
 			createAccount: "创建账户",
@@ -317,6 +350,8 @@ const translations = {
 			switchToLanguage: "Switch to Chinese",
 		},
 		dashboard: {
+			githubAccounts: "GitHub Accounts",
+			personalIntroduction: "Generate Introduction",
 			signOut: "Sign Out",
 			title: "Dashboard",
 			welcome: (name) => `Welcome ${name ?? "user"}`,
@@ -357,6 +392,21 @@ const translations = {
 				"Personal access token starting with ghp_ or github_pat_",
 			title: "GitHub Account Link",
 			updatedAt: "Updated At",
+		},
+		introduction: {
+			back: "Back to Dashboard",
+			empty: "Enter a GitHub username to generate and save an introduction.",
+			generate: "Generate and Save",
+			generateFailed: "Failed to generate the introduction",
+			generating: "Generating...",
+			loadFailed: "Failed to load the public introduction",
+			loadPublic: "Load Public Version",
+			subtitle:
+				"Signed-in users can generate and save introductions. Saved content is available through the Go service's public read-only API.",
+			title: "GitHub Personal Introduction",
+			usernameLabel: "GitHub Username",
+			usernamePlaceholder: "Example: fashiontai",
+			viewProfile: "View GitHub Profile",
 		},
 		header: {
 			createAccount: "Create Account",

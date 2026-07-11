@@ -1,13 +1,15 @@
-import { Button } from "@bhb-login/ui/components/button";
+import { Button, buttonVariants } from "@bhb-login/ui/components/button";
 import {
 	createFileRoute,
+	Link,
 	useNavigate,
 	useRouter,
 } from "@tanstack/react-router";
-
+import { GitBranchIcon, SparklesIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import ChangePasswordForm from "@/components/change-password-form";
+import LanguageToggle from "@/components/language-toggle";
 import { useLanguage } from "@/i18n";
 import { authClient } from "@/lib/auth-client";
 import { mapAuthError } from "@/lib/auth-error";
@@ -26,13 +28,32 @@ function RouteComponent() {
 		<div className="flex min-h-screen items-center justify-center bg-background px-6 py-12">
 			<div className="flex w-full max-w-lg flex-col gap-6">
 				<section className="flex flex-col gap-6 rounded-lg border bg-card p-8 shadow-[0_4px_20px_rgba(9,30,66,0.08)]">
-					<div className="flex flex-col gap-2">
-						<h1 className="font-semibold text-2xl text-card-foreground">
-							{t.dashboard.title}
-						</h1>
-						<p className="text-muted-foreground text-sm">
-							{t.dashboard.welcome(session.data?.user.name)}
-						</p>
+					<div className="flex items-start justify-between gap-4">
+						<div className="flex flex-col gap-2">
+							<h1 className="font-semibold text-2xl text-card-foreground">
+								{t.dashboard.title}
+							</h1>
+							<p className="text-muted-foreground text-sm">
+								{t.dashboard.welcome(session.data?.user.name)}
+							</p>
+						</div>
+						<LanguageToggle />
+					</div>
+					<div className="grid gap-3 sm:grid-cols-2">
+						<Link
+							className={buttonVariants({ variant: "outline" })}
+							to="/github-profile"
+						>
+							<GitBranchIcon aria-hidden="true" className="size-4" />
+							{t.dashboard.githubAccounts}
+						</Link>
+						<Link
+							className={buttonVariants({ variant: "outline" })}
+							to="/introduction"
+						>
+							<SparklesIcon aria-hidden="true" className="size-4" />
+							{t.dashboard.personalIntroduction}
+						</Link>
 					</div>
 					<Button
 						className="h-10 rounded-lg"

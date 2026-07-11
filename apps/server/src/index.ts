@@ -9,9 +9,14 @@ import { Hono } from "hono";
 import { handle } from "hono/aws-lambda";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import type { MiddlewareHandler } from "hono/types";
 import { z } from "zod";
 
-export const app = new Hono();
+interface AppVariables {
+	authenticatedUserId: string;
+}
+
+export const app = new Hono<{ Variables: AppVariables }>();
 
 const githubProfileRequestSchema = z.object({
 	token: z.string().trim().min(1).max(512),
@@ -20,6 +25,14 @@ const githubProfileRequestSchema = z.object({
 const githubAccountFieldRequestSchema = z.object({
 	key: z.string().trim().min(1).max(64),
 	value: z.string().trim().min(1).max(512),
+});
+
+const introductionRequestSchema = z.object({
+	locale: z.enum(["zh-CN", "en-US"]).default("zh-CN"),
+	username: z
+		.string()
+		.trim()
+		.regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/),
 });
 
 const githubUserSchema = z.object({
@@ -163,6 +176,24 @@ const toGithubAccountResponse = (account: GithubAccountWithFields) => ({
 	updatedAt: account.updatedAt.toISOString(),
 });
 
+const requireAuthentication: MiddlewareHandler<{
+	Variables: AppVariables;
+}> = async (c, next) => {
+	const session = await auth.api.getSession({ headers: c.req.raw.headers });
+	if (!session) {
+		return c.json(
+			{
+				error: "UNAUTHORIZED",
+				message: "Authentication is required.",
+			},
+			401
+		);
+	}
+
+	c.set("authenticatedUserId", session.user.id);
+	await next();
+};
+
 app.use(logger());
 app.use(
 	"/*",
@@ -175,6 +206,9 @@ app.use(
 );
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
+
+app.use("/api/github/*", requireAuthentication);
+app.use("/api/introductions/*", requireAuthentication);
 
 app.use(
 	"/trpc/*",
@@ -193,6 +227,62 @@ app.get("/api/hello", (c) =>
 		timestamp: new Date().toISOString(),
 	})
 );
+
+app.post("/api/introductions/generate", async (c) => {
+	let payload: unknown;
+
+	try {
+		payload = await c.req.json();
+	} catch {
+		return c.json(
+			{
+				error: "INVALID_JSON",
+				message: "Request body must be valid JSON.",
+			},
+			400
+		);
+	}
+
+	const parsedRequest = introductionRequestSchema.safeParse(payload);
+	if (!parsedRequest.success) {
+		return c.json(
+			{
+				error: "INVALID_USERNAME",
+				message: "A valid GitHub username is required.",
+			},
+			400
+		);
+	}
+
+	try {
+		const response = await fetch(
+			`${env.GO_PROFILE_SERVICE_URL}/internal/v1/introductions/generate`,
+			{
+				body: JSON.stringify({
+					...parsedRequest.data,
+					userId: c.get("authenticatedUserId"),
+				}),
+				headers: {
+					"Content-Type": "application/json",
+					"X-Internal-Service-Token": env.GO_INTERNAL_SERVICE_TOKEN,
+				},
+				method: "POST",
+				signal: AbortSignal.timeout(15_000),
+			}
+		);
+		const responsePayload = (await response.json()) as unknown;
+
+		return c.json(responsePayload, response.status as 200);
+	} catch {
+		return c.json(
+			{
+				error: "GO_PROFILE_SERVICE_UNAVAILABLE",
+				message: "The profile generation service is unavailable.",
+			},
+			503
+		);
+	}
+});
 
 app.post("/api/github/profile", async (c) => {
 	let payload: unknown;

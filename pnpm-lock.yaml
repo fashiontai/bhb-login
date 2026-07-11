@@ -91,6 +91,8 @@ importers:
         specifier: 7.8.4
         version: 7.8.4
 
+  apps/go-profile: {}
+
   apps/server:
     dependencies:
       '@bhb-login/api':

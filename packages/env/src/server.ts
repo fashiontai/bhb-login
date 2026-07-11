@@ -8,6 +8,8 @@ export const env = createEnv({
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),
 		CORS_ORIGIN: z.url(),
+		GO_PROFILE_SERVICE_URL: z.url().default("http://localhost:8080"),
+		GO_INTERNAL_SERVICE_TOKEN: z.string().min(32),
 		NODE_ENV: z
 			.enum(["development", "production", "test"])
 			.default("development"),

@@ -1,0 +1,12 @@
+{
+  "name": "go-profile",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "go build -o dist/go-profile ./cmd/api",
+    "check-types": "go vet ./...",
+    "dev": "go run ./cmd/api",
+    "migrate": "go run ./cmd/migrate",
+    "test": "go test ./..."
+  }
+}
