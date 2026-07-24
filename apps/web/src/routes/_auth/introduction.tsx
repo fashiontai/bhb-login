@@ -38,6 +38,10 @@ interface ApiError {
 	message?: string;
 }
 
+const previewHeaders: Record<string, string> = env.VITE_PREVIEW_ID
+	? { "X-BHB-Preview": env.VITE_PREVIEW_ID }
+	: {};
+
 function RouteComponent() {
 	const { locale, t } = useLanguage();
 	const [username, setUsername] = useState("");
@@ -56,7 +60,10 @@ function RouteComponent() {
 				{
 					body: JSON.stringify({ locale, username: username.trim() }),
 					credentials: "include",
-					headers: { "Content-Type": "application/json" },
+					headers: {
+						"Content-Type": "application/json",
+						...previewHeaders,
+					},
 					method: "POST",
 				}
 			);
@@ -81,7 +88,8 @@ function RouteComponent() {
 		setError(null);
 		try {
 			const response = await fetch(
-				`${env.VITE_GO_PROFILE_URL}/public/v1/introductions/${encodeURIComponent(username.trim())}?locale=${locale}`
+				`${env.VITE_GO_PROFILE_URL}/public/v1/introductions/${encodeURIComponent(username.trim())}?locale=${locale}`,
+				{ headers: previewHeaders }
 			);
 			const payload = (await response.json()) as IntroductionResponse &
 				ApiError;

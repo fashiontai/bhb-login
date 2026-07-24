@@ -15,7 +15,7 @@ func main() {
 		slog.Error("failed to load migration configuration", "error", err)
 		os.Exit(1)
 	}
-	if err := migrations.Run(context.Background(), appConfig.DatabaseURL); err != nil {
+	if err := migrations.Run(context.Background(), appConfig.DatabaseURL, appConfig.DatabaseSchema); err != nil {
 		slog.Error("Go profile migration failed", "error", err)
 		os.Exit(1)
 	}

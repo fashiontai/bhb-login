@@ -30,7 +30,7 @@ func (fakeStore) SaveIntroduction(_ context.Context, profile github.Profile, _, 
 }
 
 func TestInternalGenerateRequiresServiceToken(t *testing.T) {
-	handler := New("http://localhost:3001", strings.Repeat("a", 32), fakeGithubClient{}, fakeStore{})
+	handler := New("http://localhost:3001", "bhb-login.pages.dev", strings.Repeat("a", 32), fakeGithubClient{}, fakeStore{})
 	request := httptest.NewRequest(http.MethodPost, "/internal/v1/introductions/generate", strings.NewReader(`{"username":"fashiontai","userId":"user-1"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -44,7 +44,7 @@ func TestInternalGenerateRequiresServiceToken(t *testing.T) {
 
 func TestInternalGenerateAcceptsServiceToken(t *testing.T) {
 	token := strings.Repeat("a", 32)
-	handler := New("http://localhost:3001", token, fakeGithubClient{}, fakeStore{})
+	handler := New("http://localhost:3001", "bhb-login.pages.dev", token, fakeGithubClient{}, fakeStore{})
 	request := httptest.NewRequest(http.MethodPost, "/internal/v1/introductions/generate", strings.NewReader(`{"username":"fashiontai","userId":"user-1","locale":"en-US"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Internal-Service-Token", token)
@@ -54,5 +54,31 @@ func TestInternalGenerateAcceptsServiceToken(t *testing.T) {
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, response.Code, response.Body.String())
+	}
+}
+
+func TestCorsAllowsProjectCloudflarePreview(t *testing.T) {
+	handler := New("https://fashiontai.online", "bhb-login.pages.dev", strings.Repeat("a", 32), fakeGithubClient{}, fakeStore{})
+	request := httptest.NewRequest(http.MethodOptions, "/public/v1/introductions/fashiontai", nil)
+	request.Header.Set("Origin", "https://feature-go.bhb-login.pages.dev")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Header().Get("Access-Control-Allow-Origin") != "https://feature-go.bhb-login.pages.dev" {
+		t.Fatalf("expected the Cloudflare preview origin to be allowed")
+	}
+}
+
+func TestCorsRejectsUnrelatedPagesProject(t *testing.T) {
+	handler := New("https://fashiontai.online", "bhb-login.pages.dev", strings.Repeat("a", 32), fakeGithubClient{}, fakeStore{})
+	request := httptest.NewRequest(http.MethodOptions, "/public/v1/introductions/fashiontai", nil)
+	request.Header.Set("Origin", "https://attacker.pages.dev")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("expected an unrelated Pages project origin to be rejected")
 	}
 }

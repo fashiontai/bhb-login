@@ -1,0 +1,272 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Isolated ECS Fargate runtime for one BHB Login pull request.
+
+Parameters:
+  PullRequestNumber:
+    Type: Number
+    MinValue: 1
+    MaxValue: 49000
+  PreviewId:
+    Type: String
+    AllowedPattern: "^pr-[a-z0-9-]+-[a-f0-9]{8}$"
+  ListenerRulePriority:
+    Type: Number
+    MinValue: 1001
+    MaxValue: 50000
+  ImageUri:
+    Type: String
+  EcsClusterName:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet::Id
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet::Id
+  AlbSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  LambdaSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  DatabaseSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  HttpsListenerArn:
+    Type: String
+  CloudMapNamespaceId:
+    Type: String
+  TaskExecutionRoleArn:
+    Type: String
+  TaskRoleArn:
+    Type: String
+  DatabaseEndpoint:
+    Type: String
+  DatabasePort:
+    Type: String
+    Default: "5432"
+  DatabaseName:
+    Type: String
+  DatabaseSecretArn:
+    Type: String
+  GoInternalSecretArn:
+    Type: String
+  CorsOrigin:
+    Type: String
+  CloudflarePagesDomain:
+    Type: String
+  DatabaseSchema:
+    Type: String
+    AllowedPattern: "^pr_[0-9]+$"
+
+Resources:
+  PreviewLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/bhb-login/go-profile/${PreviewId}"
+      RetentionInDays: 7
+      Tags:
+        - Key: PullRequest
+          Value: !Ref PullRequestNumber
+
+  PreviewSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "Go profile preview ${PreviewId}"
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1
+      SecurityGroupIngress:
+        - FromPort: 8080
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref AlbSecurityGroupId
+          ToPort: 8080
+        - FromPort: 8080
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref LambdaSecurityGroupId
+          ToPort: 8080
+      Tags:
+        - Key: Name
+          Value: !Sub "bhb-login-${PreviewId}"
+        - Key: PullRequest
+          Value: !Ref PullRequestNumber
+      VpcId: !Ref VpcId
+
+  PreviewDatabaseIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: !Sub "PostgreSQL from ${PreviewId}"
+      FromPort: 5432
+      GroupId: !Ref DatabaseSecurityGroupId
+      IpProtocol: tcp
+      SourceSecurityGroupId: !Ref PreviewSecurityGroup
+      ToPort: 5432
+
+  PreviewTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /ready
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Matcher:
+        HttpCode: "200"
+      Port: 8080
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "15"
+      TargetType: ip
+      UnhealthyThresholdCount: 3
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: PullRequest
+          Value: !Ref PullRequestNumber
+
+  PreviewListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref PreviewTargetGroup
+          Type: forward
+      Conditions:
+        - Field: http-header
+          HttpHeaderConfig:
+            HttpHeaderName: X-BHB-Preview
+            Values:
+              - !Ref PreviewId
+        - Field: path-pattern
+          PathPatternConfig:
+            Values:
+              - /health
+              - /ready
+              - /public/*
+      ListenerArn: !Ref HttpsListenerArn
+      Priority: !Ref ListenerRulePriority
+
+  PreviewDiscoveryService:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Description: !Sub "Cloud Map service for ${PreviewId}"
+      DnsConfig:
+        DnsRecords:
+          - TTL: 10
+            Type: A
+        NamespaceId: !Ref CloudMapNamespaceId
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Name: !Sub "go-profile-${PreviewId}"
+      Tags:
+        - Key: PullRequest
+          Value: !Ref PullRequestNumber
+
+  PreviewTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        - Essential: true
+          Environment:
+            - Name: DATABASE_HOST
+              Value: !Ref DatabaseEndpoint
+            - Name: DATABASE_NAME
+              Value: !Ref DatabaseName
+            - Name: DATABASE_PORT
+              Value: !Ref DatabasePort
+            - Name: DATABASE_SCHEMA
+              Value: !Ref DatabaseSchema
+            - Name: DATABASE_SSL_MODE
+              Value: require
+            - Name: GITHUB_API_URL
+              Value: https://api.github.com
+            - Name: GO_CORS_ORIGIN
+              Value: !Ref CorsOrigin
+            - Name: CLOUDFLARE_PAGES_DOMAIN
+              Value: !Ref CloudflarePagesDomain
+            - Name: GO_SERVER_PORT
+              Value: "8080"
+          Image: !Ref ImageUri
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref PreviewLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: go-profile
+          Name: go-profile
+          PortMappings:
+            - AppProtocol: http
+              ContainerPort: 8080
+              Name: http
+              Protocol: tcp
+          Secrets:
+            - Name: DATABASE_PASSWORD
+              ValueFrom: !Sub "${DatabaseSecretArn}:password::"
+            - Name: DATABASE_USERNAME
+              ValueFrom: !Sub "${DatabaseSecretArn}:username::"
+            - Name: GO_INTERNAL_SERVICE_TOKEN
+              ValueFrom: !Ref GoInternalSecretArn
+      Cpu: "256"
+      ExecutionRoleArn: !Ref TaskExecutionRoleArn
+      Family: !Sub "bhb-login-go-${PreviewId}"
+      Memory: "512"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      TaskRoleArn: !Ref TaskRoleArn
+      Tags:
+        - Key: PullRequest
+          Value: !Ref PullRequestNumber
+
+  PreviewService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - PreviewDatabaseIngress
+      - PreviewListenerRule
+    Properties:
+      Cluster: !Ref EcsClusterName
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MaximumPercent: 200
+        MinimumHealthyPercent: 0
+      DesiredCount: 1
+      EnableECSManagedTags: true
+      HealthCheckGracePeriodSeconds: 60
+      LaunchType: FARGATE
+      LoadBalancers:
+        - ContainerName: go-profile
+          ContainerPort: 8080
+          TargetGroupArn: !Ref PreviewTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref PreviewSecurityGroup
+          Subnets:
+            - !Ref PrivateSubnetA
+            - !Ref PrivateSubnetB
+      PlatformVersion: "1.4.0"
+      PropagateTags: SERVICE
+      ServiceName: !Sub "bhb-login-go-${PreviewId}"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt PreviewDiscoveryService.Arn
+      TaskDefinition: !Ref PreviewTaskDefinition
+      Tags:
+        - Key: PullRequest
+          Value: !Ref PullRequestNumber
+
+Outputs:
+  PreviewId:
+    Value: !Ref PreviewId
+  DatabaseSchema:
+    Value: !Ref DatabaseSchema
+  EcsServiceName:
+    Value: !GetAtt PreviewService.Name
+  SecurityGroupId:
+    Value: !Ref PreviewSecurityGroup
+  TaskDefinitionArn:
+    Value: !Ref PreviewTaskDefinition

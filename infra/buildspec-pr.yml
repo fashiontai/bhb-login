@@ -1,0 +1,14 @@
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  build:
+    commands:
+      - bash scripts/manage-pr-environment.sh
+
+cache:
+  paths:
+    - "/root/.cache/go-build/**/*"
+    - "/go/pkg/mod/**/*"

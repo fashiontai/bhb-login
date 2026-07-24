@@ -3,7 +3,7 @@ import { appRouter } from "@bhb-login/api/routers/index";
 import { auth } from "@bhb-login/auth";
 import db from "@bhb-login/db";
 import { runDatabaseMigrations } from "@bhb-login/db/migrations";
-import { env } from "@bhb-login/env/server";
+import { env, isAllowedWebOrigin } from "@bhb-login/env/server";
 import { trpcServer } from "@hono/trpc-server";
 import { Hono } from "hono";
 import { handle } from "hono/aws-lambda";
@@ -34,6 +34,17 @@ const introductionRequestSchema = z.object({
 		.trim()
 		.regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/),
 });
+
+const previewIdSchema = z.string().regex(/^pr-[a-z0-9-]+-[a-f0-9]{8}$/);
+
+const resolveGoProfileServiceUrl = (previewId: string | undefined) => {
+	const parsedPreviewId = previewIdSchema.safeParse(previewId);
+	if (!parsedPreviewId.success) {
+		return env.GO_PROFILE_SERVICE_URL;
+	}
+
+	return `http://go-profile-${parsedPreviewId.data}.${env.GO_PROFILE_SERVICE_NAMESPACE}:8080`;
+};
 
 const githubUserSchema = z.object({
 	avatar_url: z.string().nullable(),
@@ -198,9 +209,9 @@ app.use(logger());
 app.use(
 	"/*",
 	cors({
-		origin: env.CORS_ORIGIN,
+		origin: (origin) => (isAllowedWebOrigin(origin) ? origin : undefined),
 		allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
-		allowHeaders: ["Content-Type", "Authorization"],
+		allowHeaders: ["Content-Type", "Authorization", "X-BHB-Preview"],
 		credentials: true,
 	})
 );
@@ -255,8 +266,11 @@ app.post("/api/introductions/generate", async (c) => {
 	}
 
 	try {
+		const goProfileServiceUrl = resolveGoProfileServiceUrl(
+			c.req.header("X-BHB-Preview")
+		);
 		const response = await fetch(
-			`${env.GO_PROFILE_SERVICE_URL}/internal/v1/introductions/generate`,
+			`${goProfileServiceUrl}/internal/v1/introductions/generate`,
 			{
 				body: JSON.stringify({
 					...parsedRequest.data,

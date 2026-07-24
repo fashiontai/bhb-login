@@ -384,6 +384,26 @@ Resources:
                   - ssm:GetParameter
                   - ssm:GetParameters
                 Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}::parameter/aws/service/ami-amazon-linux-latest/*"
+              - Sid: CodeBuildProjectDeployment
+                Effect: Allow
+                Action:
+                  - codebuild:BatchGetProjects
+                  - codebuild:CreateProject
+                  - codebuild:CreateWebhook
+                  - codebuild:DeleteProject
+                  - codebuild:DeleteWebhook
+                  - codebuild:ListTagsForResource
+                  - codebuild:TagResource
+                  - codebuild:UntagResource
+                  - codebuild:UpdateProject
+                  - codebuild:UpdateWebhook
+                Resource: !Sub "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/bhb-login-*"
+              - Sid: UseGitHubCodeConnection
+                Effect: Allow
+                Action:
+                  - codeconnections:GetConnection
+                  - codeconnections:PassConnection
+                Resource: !Sub "arn:${AWS::Partition}:codeconnections:${AWS::Region}:${AWS::AccountId}:connection/*"
 
 Outputs:
   GitHubDeployRoleArn:

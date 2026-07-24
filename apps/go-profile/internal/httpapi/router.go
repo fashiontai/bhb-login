@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -29,10 +30,11 @@ type introductionStore interface {
 }
 
 type Router struct {
-	corsOrigin    string
-	githubClient  profileClient
-	internalToken string
-	store         introductionStore
+	cloudflarePagesDomain string
+	corsOrigin            string
+	githubClient          profileClient
+	internalToken         string
+	store                 introductionStore
 }
 
 type generateRequest struct {
@@ -41,8 +43,14 @@ type generateRequest struct {
 	Username string `json:"username"`
 }
 
-func New(corsOrigin, internalToken string, githubClient profileClient, dataStore introductionStore) http.Handler {
-	router := &Router{corsOrigin: corsOrigin, githubClient: githubClient, internalToken: internalToken, store: dataStore}
+func New(corsOrigin, cloudflarePagesDomain, internalToken string, githubClient profileClient, dataStore introductionStore) http.Handler {
+	router := &Router{
+		cloudflarePagesDomain: strings.ToLower(cloudflarePagesDomain),
+		corsOrigin:            corsOrigin,
+		githubClient:          githubClient,
+		internalToken:         internalToken,
+		store:                 dataStore,
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", router.health)
 	mux.HandleFunc("GET /ready", router.ready)
@@ -136,9 +144,12 @@ func (router *Router) requireInternalToken(next http.HandlerFunc) http.HandlerFu
 
 func (router *Router) withMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		response.Header().Set("Access-Control-Allow-Origin", router.corsOrigin)
+		origin := request.Header.Get("Origin")
+		if router.isAllowedOrigin(origin) {
+			response.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		response.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		response.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		response.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-BHB-Preview")
 		response.Header().Set("Vary", "Origin")
 		response.Header().Set("X-Content-Type-Options", "nosniff")
 		if request.Method == http.MethodOptions {
@@ -147,6 +158,18 @@ func (router *Router) withMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(response, request)
 	})
+}
+
+func (router *Router) isAllowedOrigin(origin string) bool {
+	if origin == router.corsOrigin {
+		return true
+	}
+	parsedOrigin, err := url.Parse(origin)
+	if err != nil || parsedOrigin.Scheme != "https" || parsedOrigin.Hostname() == "" {
+		return false
+	}
+	hostname := strings.ToLower(parsedOrigin.Hostname())
+	return hostname == router.cloudflarePagesDomain || strings.HasSuffix(hostname, "."+router.cloudflarePagesDomain)
 }
 
 func normalizeLocale(locale string) string {
