@@ -396,6 +396,7 @@ Resources:
                   - codebuild:TagResource
                   - codebuild:UntagResource
                   - codebuild:UpdateProject
+                  - codebuild:UpdateProjectVisibility
                   - codebuild:UpdateWebhook
                 Resource: !Sub "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/bhb-login-*"
               - Sid: UseGitHubCodeConnection
