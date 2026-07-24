@@ -12,6 +12,7 @@ webhook_response="$(aws codebuild create-webhook \
   --region "$aws_region" \
   --project-name "$project_name" \
   --manual-creation \
+  --pull-request-build-policy requiresCommentApproval=DISABLED \
   --filter-groups file://infra/codebuild-pr-webhook-filters.json)"
 
 payload_url="$(jq -r '.webhook.payloadUrl' <<<"$webhook_response")"
