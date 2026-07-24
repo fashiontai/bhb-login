@@ -342,6 +342,7 @@ Resources:
                 Effect: Allow
                 Action:
                   - elasticloadbalancing:AddTags
+                  - elasticloadbalancing:AddListenerCertificates
                   - elasticloadbalancing:CreateListener
                   - elasticloadbalancing:CreateLoadBalancer
                   - elasticloadbalancing:CreateRule
@@ -352,6 +353,7 @@ Resources:
                   - elasticloadbalancing:DeleteTargetGroup
                   - elasticloadbalancing:DeregisterTargets
                   - elasticloadbalancing:DescribeListeners
+                  - elasticloadbalancing:DescribeListenerCertificates
                   - elasticloadbalancing:DescribeLoadBalancerAttributes
                   - elasticloadbalancing:DescribeLoadBalancers
                   - elasticloadbalancing:DescribeRules
@@ -366,10 +368,16 @@ Resources:
                   - elasticloadbalancing:ModifyTargetGroupAttributes
                   - elasticloadbalancing:RegisterTargets
                   - elasticloadbalancing:RemoveTags
+                  - elasticloadbalancing:RemoveListenerCertificates
                   - elasticloadbalancing:SetIpAddressType
                   - elasticloadbalancing:SetSecurityGroups
                   - elasticloadbalancing:SetSubnets
                 Resource: "*"
+              - Sid: ReadApplicationLoadBalancerCertificate
+                Effect: Allow
+                Action:
+                  - acm:DescribeCertificate
+                Resource: !Sub "arn:${AWS::Partition}:acm:${AWS::Region}:${AWS::AccountId}:certificate/*"
               - Sid: ReadAmazonLinuxPublicAmiParameter
                 Effect: Allow
                 Action:

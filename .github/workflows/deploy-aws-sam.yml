@@ -11,6 +11,10 @@ name: Deploy AWS Backend
 # - DATABASE_MIN_CAPACITY
 # - DATABASE_MAX_CAPACITY
 # - FRONTEND_ORIGIN
+# - GO_PROFILE_PUBLIC_DOMAIN
+#
+# Required GitHub environment variables:
+# - GO_PROFILE_CERTIFICATE_ARN
 
 on:
   push:
@@ -91,11 +95,12 @@ jobs:
           AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           GO_INTERNAL_SERVICE_TOKEN: ${{ secrets.GO_INTERNAL_SERVICE_TOKEN }}
+          GO_PROFILE_CERTIFICATE_ARN: ${{ vars.GO_PROFILE_CERTIFICATE_ARN }}
         run: |
           set -euo pipefail
-          for name in AWS_ROLE_TO_ASSUME BETTER_AUTH_SECRET GO_INTERNAL_SERVICE_TOKEN; do
+          for name in AWS_ROLE_TO_ASSUME BETTER_AUTH_SECRET GO_INTERNAL_SERVICE_TOKEN GO_PROFILE_CERTIFICATE_ARN; do
             if [ -z "${!name}" ]; then
-              echo "::error::Missing GitHub secret: ${name}"
+              echo "::error::Missing required GitHub deployment value: ${name}"
               exit 1
             fi
           done
@@ -165,6 +170,8 @@ jobs:
           DATABASE_MAX_CAPACITY: ${{ vars.DATABASE_MAX_CAPACITY || '1' }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           GO_INTERNAL_SERVICE_TOKEN: ${{ secrets.GO_INTERNAL_SERVICE_TOKEN }}
+          GO_PROFILE_CERTIFICATE_ARN: ${{ vars.GO_PROFILE_CERTIFICATE_ARN }}
+          GO_PROFILE_PUBLIC_DOMAIN: ${{ vars.GO_PROFILE_PUBLIC_DOMAIN || 'go-api.fashiontai.online' }}
           CURRENT_GO_IMAGE_URI: ${{ steps.current_runtime.outputs.image_uri }}
           FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://fashiontai.online' }}
         run: |
@@ -181,6 +188,8 @@ jobs:
             "BetterAuthUrl=${better_auth_url}"
             "CorsOrigin=${cors_origin}"
             "GoInternalServiceToken=${GO_INTERNAL_SERVICE_TOKEN}"
+            "GoProfileCertificateArn=${GO_PROFILE_CERTIFICATE_ARN}"
+            "GoProfilePublicDomainName=${GO_PROFILE_PUBLIC_DOMAIN}"
             "NodeEnv=production"
           )
           if [ -n "${CURRENT_GO_IMAGE_URI}" ]; then
@@ -265,6 +274,8 @@ jobs:
           DATABASE_MAX_CAPACITY: ${{ vars.DATABASE_MAX_CAPACITY || '1' }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           GO_INTERNAL_SERVICE_TOKEN: ${{ secrets.GO_INTERNAL_SERVICE_TOKEN }}
+          GO_PROFILE_CERTIFICATE_ARN: ${{ vars.GO_PROFILE_CERTIFICATE_ARN }}
+          GO_PROFILE_PUBLIC_DOMAIN: ${{ vars.GO_PROFILE_PUBLIC_DOMAIN || 'go-api.fashiontai.online' }}
           GO_REPOSITORY_URI: ${{ steps.stack_outputs.outputs.go_repository_uri }}
           API_URL: ${{ steps.stack_outputs.outputs.api_url }}
           FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://fashiontai.online' }}
@@ -281,6 +292,8 @@ jobs:
             "BetterAuthUrl=${API_URL}"
             "CorsOrigin=${cors_origin}"
             "GoInternalServiceToken=${GO_INTERNAL_SERVICE_TOKEN}"
+            "GoProfileCertificateArn=${GO_PROFILE_CERTIFICATE_ARN}"
+            "GoProfilePublicDomainName=${GO_PROFILE_PUBLIC_DOMAIN}"
             "GoProfileImageUri=${GO_REPOSITORY_URI}:${GITHUB_SHA}"
             "NodeEnv=production"
           )

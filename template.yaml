@@ -51,6 +51,14 @@ Parameters:
     MinValue: 1
     MaxValue: 10
     Description: Desired number of production Go profile tasks.
+  GoProfileCertificateArn:
+    Type: String
+    AllowedPattern: "^arn:aws:acm:[a-z0-9-]+:[0-9]{12}:certificate/[A-Za-z0-9-]+$"
+    Description: ACM certificate ARN for the public Go profile HTTPS listener.
+  GoProfilePublicDomainName:
+    Type: String
+    Default: go-api.fashiontai.online
+    Description: Public DNS name routed to the Go profile ALB.
   NodeEnv:
     Type: String
     Default: production
@@ -375,6 +383,10 @@ Resources:
           FromPort: 80
           IpProtocol: tcp
           ToPort: 80
+        - CidrIp: 0.0.0.0/0
+          FromPort: 443
+          IpProtocol: tcp
+          ToPort: 443
       Tags:
         - Key: Name
           Value: !Sub "${AWS::StackName}-go-profile-alb-sg"
@@ -593,14 +605,30 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
+        - RedirectConfig:
+            Port: "443"
+            Protocol: HTTPS
+            StatusCode: HTTP_301
+          Type: redirect
+      LoadBalancerArn: !Ref GoProfileLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  GoProfileHttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+        - CertificateArn: !Ref GoProfileCertificateArn
+      DefaultActions:
         - FixedResponseConfig:
             ContentType: application/json
             MessageBody: '{"error":"not_found"}'
             StatusCode: "404"
           Type: fixed-response
       LoadBalancerArn: !Ref GoProfileLoadBalancer
-      Port: 80
-      Protocol: HTTP
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
 
   GoProfilePublicRoute:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
@@ -615,7 +643,7 @@ Resources:
               - /health
               - /ready
               - /public/*
-      ListenerArn: !Ref GoProfileAlbListener
+      ListenerArn: !Ref GoProfileHttpsListener
       Priority: 100
 
   GoProfileTaskExecutionRole:
@@ -908,8 +936,8 @@ Outputs:
     Description: Public ALB DNS name for the Go profile service.
     Value: !GetAtt GoProfileLoadBalancer.DNSName
   GoProfilePublicUrl:
-    Description: Public HTTP URL for Go profile health and read-only endpoints.
-    Value: !Sub "http://${GoProfileLoadBalancer.DNSName}"
+    Description: Public HTTPS URL for Go profile health and read-only endpoints.
+    Value: !Sub "https://${GoProfilePublicDomainName}"
   GoProfileServiceName:
     Condition: ShouldDeployGoProfileService
     Description: ECS service name for the Go profile application.
