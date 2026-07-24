@@ -53,7 +53,7 @@ branch_name="${CODEBUILD_WEBHOOK_HEAD_REF#refs/heads/}"
 preview_id="$(node scripts/preview-id.mjs "$branch_name")"
 stack_name="bhb-login-pr-${pull_request_number}"
 database_schema="pr_${pull_request_number}"
-listener_priority="$((1000 + pull_request_number))"
+listener_priority="$pull_request_number"
 
 stack_output() {
   local output_key="$1"

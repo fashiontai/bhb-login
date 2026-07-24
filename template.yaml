@@ -653,7 +653,7 @@ Resources:
               - /ready
               - /public/*
       ListenerArn: !Ref GoProfileHttpsListener
-      Priority: 100
+      Priority: 50000
 
   GoProfileTaskExecutionRole:
     Type: AWS::IAM::Role
