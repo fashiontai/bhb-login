@@ -68,11 +68,6 @@ Parameters:
     Type: String
     AllowedPattern: "^arn:aws:codeconnections:[a-z0-9-]+:[0-9]{12}:connection/[A-Za-z0-9-]+$"
     Description: CodeConnections GitHub App connection used by the PR CodeBuild project.
-  GitHubAllowedActorId:
-    Type: String
-    Default: "20429980"
-    AllowedPattern: "^[0-9]+$"
-    Description: GitHub numeric account ID allowed to trigger privileged PR builds.
   NodeEnv:
     Type: String
     Default: production
@@ -918,16 +913,6 @@ Resources:
         ReportBuildStatus: true
         Type: GITHUB
       TimeoutInMinutes: 30
-      Triggers:
-        BuildType: BUILD
-        FilterGroups:
-          - - Type: EVENT
-              Pattern: PULL_REQUEST_CREATED, PULL_REQUEST_UPDATED, PULL_REQUEST_REOPENED, PULL_REQUEST_CLOSED, PULL_REQUEST_MERGED
-            - Type: BASE_REF
-              Pattern: ^refs/heads/main$
-            - Type: ACTOR_ACCOUNT_ID
-              Pattern: !Sub "^${GitHubAllowedActorId}$"
-        Webhook: true
       Visibility: PRIVATE
       Tags:
         - Key: Name

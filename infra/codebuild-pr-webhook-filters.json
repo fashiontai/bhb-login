@@ -1,0 +1,16 @@
+[
+  [
+    {
+      "type": "EVENT",
+      "pattern": "PULL_REQUEST_CREATED, PULL_REQUEST_UPDATED, PULL_REQUEST_REOPENED, PULL_REQUEST_CLOSED, PULL_REQUEST_MERGED"
+    },
+    {
+      "type": "BASE_REF",
+      "pattern": "^refs/heads/main$"
+    },
+    {
+      "type": "ACTOR_ACCOUNT_ID",
+      "pattern": "^20429980$"
+    }
+  ]
+]
