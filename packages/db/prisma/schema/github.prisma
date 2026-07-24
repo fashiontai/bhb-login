@@ -1,6 +1,6 @@
 model GithubAccount {
-  id              String               @id @default(cuid())
-  githubId        Int                  @unique
+  id              String                 @id @default(cuid())
+  githubId        Int                    @unique
   login           String
   name            String?
   avatarUrl       String?
@@ -15,9 +15,10 @@ model GithubAccount {
   following       Int
   githubCreatedAt DateTime
   githubUpdatedAt DateTime
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
   fields          GithubAccountField[]
+  introductions   PersonalIntroduction[]
 
   @@index([login])
   @@map("github_account")
@@ -35,4 +36,20 @@ model GithubAccountField {
   @@unique([accountId, key])
   @@index([accountId])
   @@map("github_account_field")
+}
+
+model PersonalIntroduction {
+  id                String        @id
+  githubAccountId   String        @map("github_account_id")
+  generatedByUserId String?       @map("generated_by_user_id")
+  locale            String
+  content           String
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+  githubAccount     GithubAccount @relation(fields: [githubAccountId], references: [id], onDelete: Cascade)
+  generatedByUser   User?         @relation(fields: [generatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([githubAccountId, locale])
+  @@index([generatedByUserId])
+  @@map("personal_introduction")
 }

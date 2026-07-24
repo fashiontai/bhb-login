@@ -13,13 +13,6 @@ Parameters:
     Default: bhbadmin
     AllowedPattern: "^[A-Za-z][A-Za-z0-9_]{0,62}$"
     Description: PostgreSQL master username.
-  DatabasePassword:
-    Type: String
-    NoEcho: true
-    MinLength: 16
-    MaxLength: 64
-    AllowedPattern: "^[A-Za-z0-9]+$"
-    Description: PostgreSQL master password. Use letters and numbers only.
   DatabaseMinCapacity:
     Type: Number
     Default: 0.5
@@ -43,6 +36,21 @@ Parameters:
   CorsOrigin:
     Type: String
     Description: Public web origin allowed by CORS.
+  GoInternalServiceToken:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: Shared token used only for Lambda-to-Go internal requests.
+  GoProfileImageUri:
+    Type: String
+    Default: ""
+    Description: ECR image URI for the Go profile service. Leave empty during the bootstrap deployment.
+  GoProfileDesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+    Description: Desired number of production Go profile tasks.
   NodeEnv:
     Type: String
     Default: production
@@ -58,7 +66,11 @@ Parameters:
   PublicSubnetCidr:
     Type: String
     Default: 10.20.0.0/24
-    Description: CIDR block for the public subnet.
+    Description: CIDR block for the first public subnet.
+  PublicSubnetBCidr:
+    Type: String
+    Default: 10.20.1.0/24
+    Description: CIDR block for the second public subnet.
   PrivateSubnetACidr:
     Type: String
     Default: 10.20.10.0/24
@@ -80,9 +92,15 @@ Parameters:
       - t4g.small
     Description: EC2 instance type for the SSM bastion.
 
+Conditions:
+  ShouldDeployGoProfileService: !Not
+    - !Equals
+      - !Ref GoProfileImageUri
+      - ""
+
 Globals:
   Function:
-    Runtime: nodejs20.x
+    Runtime: nodejs24.x
     Architectures:
       - arm64
     Timeout: 30
@@ -93,6 +111,61 @@ Globals:
         NODE_ENV: !Ref NodeEnv
 
 Resources:
+  DatabaseCredentialsSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: Aurora PostgreSQL credentials for the BHB Login application.
+      GenerateSecretString:
+        ExcludePunctuation: true
+        GenerateStringKey: password
+        PasswordLength: 32
+        SecretStringTemplate: !Sub '{"username":"${DatabaseUsername}"}'
+      Name: !Sub "${AWS::StackName}/database/credentials"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-database-credentials"
+
+  GoInternalServiceSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Shared authentication token for Lambda-to-Go internal requests.
+      SecretString: !Ref GoInternalServiceToken
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-go-internal-token"
+
+  GoProfileRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      EmptyOnDelete: false
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: MUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep the 20 most recent Go profile images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 20
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      RepositoryName: !Sub "${AWS::StackName}-go-profile"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-go-profile"
+
   AppVpc:
     Type: AWS::EC2::VPC
     Properties:
@@ -127,6 +200,19 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${AWS::StackName}-public-a"
+      VpcId: !Ref AppVpc
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs ""
+      CidrBlock: !Ref PublicSubnetBCidr
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-public-b"
       VpcId: !Ref AppVpc
 
   PrivateSubnetA:
@@ -176,6 +262,12 @@ Resources:
     Properties:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet
+
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetB
 
   NatGatewayEip:
     Type: AWS::EC2::EIP
@@ -250,6 +342,44 @@ Resources:
           Value: !Sub "${AWS::StackName}-lambda-sg"
       VpcId: !Ref AppVpc
 
+  GoProfileSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for the Go profile Fargate service.
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1
+      SecurityGroupIngress:
+        - FromPort: 8080
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+          ToPort: 8080
+        - FromPort: 8080
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref GoProfileAlbSecurityGroup
+          ToPort: 8080
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-go-profile-sg"
+      VpcId: !Ref AppVpc
+
+  GoProfileAlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for the public Go profile ALB.
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-go-profile-alb-sg"
+      VpcId: !Ref AppVpc
+
   DatabaseSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -262,6 +392,10 @@ Resources:
         - FromPort: 5432
           IpProtocol: tcp
           SourceSecurityGroupId: !Ref BastionSecurityGroup
+          ToPort: 5432
+        - FromPort: 5432
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref GoProfileSecurityGroup
           ToPort: 5432
       Tags:
         - Key: Name
@@ -348,9 +482,9 @@ Resources:
       DatabaseName: !Ref DatabaseName
       DBSubnetGroupName: !Ref DatabaseSubnetGroup
       Engine: aurora-postgresql
-      EngineVersion: "16.4"
-      MasterUsername: !Ref DatabaseUsername
-      MasterUserPassword: !Ref DatabasePassword
+      EngineVersion: "16.13"
+      MasterUsername: !Sub "{{resolve:secretsmanager:${DatabaseCredentialsSecret}:SecretString:username}}"
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${DatabaseCredentialsSecret}:SecretString:password}}"
       ServerlessV2ScalingConfiguration:
         MinCapacity: !Ref DatabaseMinCapacity
         MaxCapacity: !Ref DatabaseMaxCapacity
@@ -366,6 +500,262 @@ Resources:
       DBInstanceClass: db.serverless
       Engine: aurora-postgresql
       PubliclyAccessible: false
+
+  GoProfileLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub "/ecs/${AWS::StackName}/go-profile"
+      RetentionInDays: 14
+
+  GoProfileCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${AWS::StackName}-go-profile"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-go-profile"
+
+  GoProfileNamespace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Description: Private service discovery namespace for the BHB Login stack.
+      Name: !Sub "${AWS::StackName}.local"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-private-namespace"
+      Vpc: !Ref AppVpc
+
+  GoProfileDiscoveryService:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Description: Private DNS records for the Go profile Fargate tasks.
+      DnsConfig:
+        DnsRecords:
+          - TTL: 10
+            Type: A
+        NamespaceId: !Ref GoProfileNamespace
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Name: go-profile
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-go-profile-discovery"
+
+  GoProfileLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      LoadBalancerAttributes:
+        - Key: deletion_protection.enabled
+          Value: "false"
+        - Key: idle_timeout.timeout_seconds
+          Value: "60"
+      Name: !Sub "${AWS::StackName}-go"
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref GoProfileAlbSecurityGroup
+      Subnets:
+        - !Ref PublicSubnet
+        - !Ref PublicSubnetB
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-go-profile"
+      Type: application
+
+  GoProfileTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /ready
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Matcher:
+        HttpCode: "200"
+      Port: 8080
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "30"
+      TargetType: ip
+      UnhealthyThresholdCount: 3
+      VpcId: !Ref AppVpc
+
+  GoProfileAlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - FixedResponseConfig:
+            ContentType: application/json
+            MessageBody: '{"error":"not_found"}'
+            StatusCode: "404"
+          Type: fixed-response
+      LoadBalancerArn: !Ref GoProfileLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  GoProfilePublicRoute:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref GoProfileTargetGroup
+          Type: forward
+      Conditions:
+        - Field: path-pattern
+          PathPatternConfig:
+            Values:
+              - /health
+              - /ready
+              - /public/*
+      ListenerArn: !Ref GoProfileAlbListener
+      Priority: 100
+
+  GoProfileTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: ReadGoProfileSecrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref DatabaseCredentialsSecret
+                  - !Ref GoInternalServiceSecret
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-go-task-execution-role"
+
+  GoProfileTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-go-task-role"
+
+  GoProfileTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Condition: ShouldDeployGoProfileService
+    Properties:
+      ContainerDefinitions:
+        - Essential: true
+          Environment:
+            - Name: DATABASE_HOST
+              Value: !GetAtt DatabaseCluster.Endpoint.Address
+            - Name: DATABASE_NAME
+              Value: !Ref DatabaseName
+            - Name: DATABASE_PORT
+              Value: !GetAtt DatabaseCluster.Endpoint.Port
+            - Name: DATABASE_SSL_MODE
+              Value: require
+            - Name: GITHUB_API_URL
+              Value: https://api.github.com
+            - Name: GO_CORS_ORIGIN
+              Value: !Ref CorsOrigin
+            - Name: GO_SERVER_PORT
+              Value: "8080"
+          Image: !Ref GoProfileImageUri
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref GoProfileLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: go-profile
+          Name: go-profile
+          PortMappings:
+            - AppProtocol: http
+              ContainerPort: 8080
+              Name: http
+              Protocol: tcp
+          Secrets:
+            - Name: DATABASE_PASSWORD
+              ValueFrom: !Sub "${DatabaseCredentialsSecret}:password::"
+            - Name: DATABASE_USERNAME
+              ValueFrom: !Sub "${DatabaseCredentialsSecret}:username::"
+            - Name: GO_INTERNAL_SERVICE_TOKEN
+              ValueFrom: !Ref GoInternalServiceSecret
+      Cpu: "256"
+      ExecutionRoleArn: !GetAtt GoProfileTaskExecutionRole.Arn
+      Family: !Sub "${AWS::StackName}-go-profile"
+      Memory: "512"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      TaskRoleArn: !GetAtt GoProfileTaskRole.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-go-profile"
+
+  GoProfileService:
+    Type: AWS::ECS::Service
+    Condition: ShouldDeployGoProfileService
+    DependsOn:
+      - GoProfilePublicRoute
+      - PrivateDefaultRoute
+      - PrivateSubnetARouteTableAssociation
+      - PrivateSubnetBRouteTableAssociation
+    Properties:
+      Cluster: !Ref GoProfileCluster
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: !Ref GoProfileDesiredCount
+      EnableECSManagedTags: true
+      HealthCheckGracePeriodSeconds: 60
+      LaunchType: FARGATE
+      LoadBalancers:
+        - ContainerName: go-profile
+          ContainerPort: 8080
+          TargetGroupArn: !Ref GoProfileTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref GoProfileSecurityGroup
+          Subnets:
+            - !Ref PrivateSubnetA
+            - !Ref PrivateSubnetB
+      PlatformVersion: "1.4.0"
+      PropagateTags: SERVICE
+      ServiceName: !Sub "${AWS::StackName}-go-profile"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt GoProfileDiscoveryService.Arn
+      TaskDefinition: !Ref GoProfileTaskDefinition
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-go-profile"
 
   ApiFunction:
     Type: AWS::Serverless::Function
@@ -386,14 +776,16 @@ Resources:
         Variables:
           DATABASE_URL: !Sub
             - "postgresql://${Username}:${Password}@${Host}:${Port}/${Name}"
-            - Username: !Ref DatabaseUsername
-              Password: !Ref DatabasePassword
+            - Username: !Sub "{{resolve:secretsmanager:${DatabaseCredentialsSecret}:SecretString:username}}"
+              Password: !Sub "{{resolve:secretsmanager:${DatabaseCredentialsSecret}:SecretString:password}}"
               Host: !GetAtt DatabaseCluster.Endpoint.Address
               Port: !GetAtt DatabaseCluster.Endpoint.Port
               Name: !Ref DatabaseName
           BETTER_AUTH_SECRET: !Ref BetterAuthSecret
           BETTER_AUTH_URL: !Ref BetterAuthUrl
           CORS_ORIGIN: !Ref CorsOrigin
+          GO_INTERNAL_SERVICE_TOKEN: !Ref GoInternalServiceToken
+          GO_PROFILE_SERVICE_URL: !Sub "http://go-profile.${AWS::StackName}.local:8080"
       Events:
         Root:
           Type: HttpApi
@@ -428,22 +820,27 @@ Resources:
         Variables:
           DATABASE_URL: !Sub
             - "postgresql://${Username}:${Password}@${Host}:${Port}/${Name}"
-            - Username: !Ref DatabaseUsername
-              Password: !Ref DatabasePassword
+            - Username: !Sub "{{resolve:secretsmanager:${DatabaseCredentialsSecret}:SecretString:username}}"
+              Password: !Sub "{{resolve:secretsmanager:${DatabaseCredentialsSecret}:SecretString:password}}"
               Host: !GetAtt DatabaseCluster.Endpoint.Address
               Port: !GetAtt DatabaseCluster.Endpoint.Port
               Name: !Ref DatabaseName
           BETTER_AUTH_SECRET: !Ref BetterAuthSecret
           BETTER_AUTH_URL: !Ref BetterAuthUrl
           CORS_ORIGIN: !Ref CorsOrigin
+          GO_INTERNAL_SERVICE_TOKEN: !Ref GoInternalServiceToken
+          GO_PROFILE_SERVICE_URL: !Sub "http://go-profile.${AWS::StackName}.local:8080"
 
 Outputs:
   AppVpcId:
     Description: Application VPC ID.
     Value: !Ref AppVpc
   PublicSubnetId:
-    Description: Public subnet ID for NAT Gateway.
+    Description: First public subnet ID for NAT Gateway and ALB.
     Value: !Ref PublicSubnet
+  PublicSubnetBId:
+    Description: Second public subnet ID for ALB.
+    Value: !Ref PublicSubnetB
   PrivateSubnetAId:
     Description: First private subnet ID for Lambda.
     Value: !Ref PrivateSubnetA
@@ -459,6 +856,12 @@ Outputs:
   DatabaseSecurityGroupId:
     Description: Database security group ID.
     Value: !Ref DatabaseSecurityGroup
+  GoProfileSecurityGroupId:
+    Description: Go profile Fargate security group ID.
+    Value: !Ref GoProfileSecurityGroup
+  GoProfileAlbSecurityGroupId:
+    Description: Public Go profile ALB security group ID.
+    Value: !Ref GoProfileAlbSecurityGroup
   BastionInstanceId:
     Description: Private SSM bastion instance ID for database tunnels.
     Value: !Ref BastionInstance
@@ -468,6 +871,9 @@ Outputs:
   DatabaseEndpoint:
     Description: Aurora PostgreSQL cluster endpoint address.
     Value: !GetAtt DatabaseCluster.Endpoint.Address
+  DatabaseCredentialsSecretArn:
+    Description: Secrets Manager ARN for the Aurora PostgreSQL credentials.
+    Value: !Ref DatabaseCredentialsSecret
   DatabasePort:
     Description: Aurora PostgreSQL cluster endpoint port.
     Value: !GetAtt DatabaseCluster.Endpoint.Port
@@ -483,3 +889,28 @@ Outputs:
   ApiUrl:
     Description: HTTP API URL.
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+  GoProfileRepositoryName:
+    Description: ECR repository name for the Go profile service.
+    Value: !Ref GoProfileRepository
+  GoProfileRepositoryUri:
+    Description: ECR repository URI for the Go profile service.
+    Value: !GetAtt GoProfileRepository.RepositoryUri
+  GoProfileClusterName:
+    Description: ECS cluster name for the Go profile service.
+    Value: !Ref GoProfileCluster
+  GoProfileCloudMapNamespace:
+    Description: Private Cloud Map namespace used by Lambda.
+    Value: !Sub "${AWS::StackName}.local"
+  GoProfileInternalUrl:
+    Description: Private Go profile URL resolved through Cloud Map.
+    Value: !Sub "http://go-profile.${AWS::StackName}.local:8080"
+  GoProfileAlbDnsName:
+    Description: Public ALB DNS name for the Go profile service.
+    Value: !GetAtt GoProfileLoadBalancer.DNSName
+  GoProfilePublicUrl:
+    Description: Public HTTP URL for Go profile health and read-only endpoints.
+    Value: !Sub "http://${GoProfileLoadBalancer.DNSName}"
+  GoProfileServiceName:
+    Condition: ShouldDeployGoProfileService
+    Description: ECS service name for the Go profile application.
+    Value: !GetAtt GoProfileService.Name

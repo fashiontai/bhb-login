@@ -2,8 +2,8 @@ name: Deploy AWS Backend
 
 # Required GitHub environment secrets:
 # - AWS_ROLE_TO_ASSUME
-# - DATABASE_PASSWORD
 # - BETTER_AUTH_SECRET
+# - GO_INTERNAL_SERVICE_TOKEN
 #
 # Optional GitHub environment variables:
 # - DATABASE_NAME
@@ -19,6 +19,7 @@ on:
     paths:
       - ".github/workflows/deploy-aws-sam.yml"
       - "apps/server/**"
+      - "apps/go-profile/**"
       - "infra/**"
       - "packages/api/**"
       - "packages/auth/**"
@@ -48,7 +49,7 @@ permissions:
 env:
   AWS_REGION: ${{ inputs.aws_region || vars.AWS_REGION || 'ap-northeast-1' }}
   STACK_NAME: ${{ inputs.stack_name || vars.SAM_STACK_NAME || 'bhb-login' }}
-  NODE_VERSION: "22"
+  NODE_VERSION: "24"
   PNPM_VERSION: "11.10.0"
 
 jobs:
@@ -71,6 +72,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: apps/go-profile/go.mod
+          cache-dependency-path: apps/go-profile/go.sum
+
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
@@ -82,11 +89,11 @@ jobs:
       - name: Validate deployment parameters
         env:
           AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          GO_INTERNAL_SERVICE_TOKEN: ${{ secrets.GO_INTERNAL_SERVICE_TOKEN }}
         run: |
           set -euo pipefail
-          for name in AWS_ROLE_TO_ASSUME DATABASE_PASSWORD BETTER_AUTH_SECRET; do
+          for name in AWS_ROLE_TO_ASSUME BETTER_AUTH_SECRET GO_INTERNAL_SERVICE_TOKEN; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing GitHub secret: ${name}"
               exit 1
@@ -100,25 +107,34 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           role-session-name: bhb-login-sam-deploy
 
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
       - name: Install dependencies
         env:
-          DATABASE_URL: postgresql://bhbadmin:${{ secrets.DATABASE_PASSWORD }}@localhost:5432/bhblogin
+          DATABASE_URL: postgresql://bhbadmin:localpassword123456@localhost:5432/bhblogin
         run: pnpm install --frozen-lockfile
 
       - name: Check code
         env:
-          DATABASE_URL: postgresql://bhbadmin:${{ secrets.DATABASE_PASSWORD }}@localhost:5432/bhblogin
+          DATABASE_URL: postgresql://bhbadmin:localpassword123456@localhost:5432/bhblogin
           VITE_SERVER_URL: http://localhost:3000
         run: pnpm run check
 
       - name: Check types
         env:
-          DATABASE_URL: postgresql://bhbadmin:${{ secrets.DATABASE_PASSWORD }}@localhost:5432/bhblogin
+          DATABASE_URL: postgresql://bhbadmin:localpassword123456@localhost:5432/bhblogin
         run: pnpm --filter server check-types
+
+      - name: Test Go profile service
+        working-directory: apps/go-profile
+        run: |
+          go test ./...
+          go vet ./...
 
       - name: Build server
         env:
-          DATABASE_URL: postgresql://bhbadmin:${{ secrets.DATABASE_PASSWORD }}@localhost:5432/bhblogin
+          DATABASE_URL: postgresql://bhbadmin:localpassword123456@localhost:5432/bhblogin
         run: pnpm --filter server build
 
       - name: Validate SAM template
@@ -127,14 +143,29 @@ jobs:
       - name: Build SAM application
         run: sam build --template-file template.yaml
 
-      - name: Deploy SAM stack
+      - name: Read current Go image
+        id: current_runtime
+        run: |
+          set -euo pipefail
+          current_image_uri="$(aws cloudformation describe-stacks \
+            --stack-name "${STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --query "Stacks[0].Parameters[?ParameterKey=='GoProfileImageUri'].ParameterValue" \
+            --output text 2>/dev/null || true)"
+          if [ "${current_image_uri}" = "None" ]; then
+            current_image_uri=""
+          fi
+          echo "image_uri=${current_image_uri}" >> "${GITHUB_OUTPUT}"
+
+      - name: Deploy base stack
         env:
           DATABASE_NAME: ${{ vars.DATABASE_NAME || 'bhblogin' }}
           DATABASE_USERNAME: ${{ vars.DATABASE_USERNAME || 'bhbadmin' }}
-          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
           DATABASE_MIN_CAPACITY: ${{ vars.DATABASE_MIN_CAPACITY || '0.5' }}
           DATABASE_MAX_CAPACITY: ${{ vars.DATABASE_MAX_CAPACITY || '1' }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          GO_INTERNAL_SERVICE_TOKEN: ${{ secrets.GO_INTERNAL_SERVICE_TOKEN }}
+          CURRENT_GO_IMAGE_URI: ${{ steps.current_runtime.outputs.image_uri }}
           FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://fashiontai.online' }}
         run: |
           set -euo pipefail
@@ -144,14 +175,17 @@ jobs:
           parameter_overrides=(
             "DatabaseName=${DATABASE_NAME}"
             "DatabaseUsername=${DATABASE_USERNAME}"
-            "DatabasePassword=${DATABASE_PASSWORD}"
             "DatabaseMinCapacity=${DATABASE_MIN_CAPACITY}"
             "DatabaseMaxCapacity=${DATABASE_MAX_CAPACITY}"
             "BetterAuthSecret=${BETTER_AUTH_SECRET}"
             "BetterAuthUrl=${better_auth_url}"
             "CorsOrigin=${cors_origin}"
+            "GoInternalServiceToken=${GO_INTERNAL_SERVICE_TOKEN}"
             "NodeEnv=production"
           )
+          if [ -n "${CURRENT_GO_IMAGE_URI}" ]; then
+            parameter_overrides+=("GoProfileImageUri=${CURRENT_GO_IMAGE_URI}")
+          fi
 
           sam deploy \
             --stack-name "${STACK_NAME}" \
@@ -172,41 +206,12 @@ jobs:
             --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
             --output text)"
           echo "api_url=${api_url}" >> "${GITHUB_OUTPUT}"
-
-      - name: Update API runtime URL
-        env:
-          DATABASE_NAME: ${{ vars.DATABASE_NAME || 'bhblogin' }}
-          DATABASE_USERNAME: ${{ vars.DATABASE_USERNAME || 'bhbadmin' }}
-          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-          DATABASE_MIN_CAPACITY: ${{ vars.DATABASE_MIN_CAPACITY || '0.5' }}
-          DATABASE_MAX_CAPACITY: ${{ vars.DATABASE_MAX_CAPACITY || '1' }}
-          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-          API_URL: ${{ steps.stack_outputs.outputs.api_url }}
-          FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://fashiontai.online' }}
-        run: |
-          set -euo pipefail
-          cors_origin="${FRONTEND_ORIGIN}"
-
-          parameter_overrides=(
-            "DatabaseName=${DATABASE_NAME}"
-            "DatabaseUsername=${DATABASE_USERNAME}"
-            "DatabasePassword=${DATABASE_PASSWORD}"
-            "DatabaseMinCapacity=${DATABASE_MIN_CAPACITY}"
-            "DatabaseMaxCapacity=${DATABASE_MAX_CAPACITY}"
-            "BetterAuthSecret=${BETTER_AUTH_SECRET}"
-            "BetterAuthUrl=${API_URL}"
-            "CorsOrigin=${cors_origin}"
-            "NodeEnv=production"
-          )
-
-          sam deploy \
+          go_repository_uri="$(aws cloudformation describe-stacks \
             --stack-name "${STACK_NAME}" \
             --region "${AWS_REGION}" \
-            --resolve-s3 \
-            --capabilities CAPABILITY_IAM \
-            --no-confirm-changeset \
-            --no-fail-on-empty-changeset \
-            --parameter-overrides "${parameter_overrides[@]}"
+            --query "Stacks[0].Outputs[?OutputKey=='GoProfileRepositoryUri'].OutputValue" \
+            --output text)"
+          echo "go_repository_uri=${go_repository_uri}" >> "${GITHUB_OUTPUT}"
 
       - name: Run database migrations
         run: |
@@ -228,6 +233,66 @@ jobs:
               process.exit(1);
             }
           '
+
+      - name: Login to Amazon ECR
+        env:
+          GO_REPOSITORY_URI: ${{ steps.stack_outputs.outputs.go_repository_uri }}
+        run: |
+          set -euo pipefail
+          registry="${GO_REPOSITORY_URI%%/*}"
+          aws ecr get-login-password --region "${AWS_REGION}" \
+            | docker login --username AWS --password-stdin "${registry}"
+
+      - name: Build and push Go image
+        env:
+          GO_REPOSITORY_URI: ${{ steps.stack_outputs.outputs.go_repository_uri }}
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --file apps/go-profile/Dockerfile \
+            --platform linux/arm64 \
+            --provenance=false \
+            --push \
+            --tag "${GO_REPOSITORY_URI}:${GITHUB_SHA}" \
+            --tag "${GO_REPOSITORY_URI}:latest" \
+            apps/go-profile
+
+      - name: Deploy Go profile runtime
+        env:
+          DATABASE_NAME: ${{ vars.DATABASE_NAME || 'bhblogin' }}
+          DATABASE_USERNAME: ${{ vars.DATABASE_USERNAME || 'bhbadmin' }}
+          DATABASE_MIN_CAPACITY: ${{ vars.DATABASE_MIN_CAPACITY || '0.5' }}
+          DATABASE_MAX_CAPACITY: ${{ vars.DATABASE_MAX_CAPACITY || '1' }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          GO_INTERNAL_SERVICE_TOKEN: ${{ secrets.GO_INTERNAL_SERVICE_TOKEN }}
+          GO_REPOSITORY_URI: ${{ steps.stack_outputs.outputs.go_repository_uri }}
+          API_URL: ${{ steps.stack_outputs.outputs.api_url }}
+          FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://fashiontai.online' }}
+        run: |
+          set -euo pipefail
+          cors_origin="${FRONTEND_ORIGIN}"
+
+          parameter_overrides=(
+            "DatabaseName=${DATABASE_NAME}"
+            "DatabaseUsername=${DATABASE_USERNAME}"
+            "DatabaseMinCapacity=${DATABASE_MIN_CAPACITY}"
+            "DatabaseMaxCapacity=${DATABASE_MAX_CAPACITY}"
+            "BetterAuthSecret=${BETTER_AUTH_SECRET}"
+            "BetterAuthUrl=${API_URL}"
+            "CorsOrigin=${cors_origin}"
+            "GoInternalServiceToken=${GO_INTERNAL_SERVICE_TOKEN}"
+            "GoProfileImageUri=${GO_REPOSITORY_URI}:${GITHUB_SHA}"
+            "NodeEnv=production"
+          )
+
+          sam deploy \
+            --stack-name "${STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --resolve-s3 \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides "${parameter_overrides[@]}"
 
       - name: Print deployment outputs
         run: |
