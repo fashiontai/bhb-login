@@ -11,8 +11,8 @@ Parameters:
     AllowedPattern: "^pr-[a-z0-9-]+-[a-f0-9]{8}$"
   ListenerRulePriority:
     Type: Number
-    MinValue: 1001
-    MaxValue: 50000
+    MinValue: 1
+    MaxValue: 49000
   ImageUri:
     Type: String
   EcsClusterName:

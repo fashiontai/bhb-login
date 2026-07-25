@@ -1,0 +1,157 @@
+name: Deploy Go PR Preview
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - closed
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: go-pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-northeast-1' }}
+  STACK_NAME: ${{ vars.SAM_STACK_NAME || 'bhb-login' }}
+
+jobs:
+  preview:
+    name: Manage Go preview
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'fashiontai'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.action == 'closed' && github.event.repository.default_branch || github.event.pull_request.head.sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: bhb-login-pr-${{ github.event.pull_request.number }}
+
+      - name: Read shared stack resources
+        run: |
+          set -euo pipefail
+
+          stack_output() {
+            aws cloudformation describe-stacks \
+              --stack-name "${STACK_NAME}" \
+              --region "${AWS_REGION}" \
+              --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+              --output text
+          }
+
+          stack_resource() {
+            aws cloudformation describe-stack-resource \
+              --stack-name "${STACK_NAME}" \
+              --region "${AWS_REGION}" \
+              --logical-resource-id "$1" \
+              --query "StackResourceDetail.PhysicalResourceId" \
+              --output text
+          }
+
+          {
+            echo "AWS_DEFAULT_REGION=${AWS_REGION}"
+            echo "ECR_REPOSITORY_URI=$(stack_output GoProfileRepositoryUri)"
+            echo "ECS_CLUSTER_NAME=$(stack_output GoProfileClusterName)"
+            echo "VPC_ID=$(stack_output AppVpcId)"
+            echo "PRIVATE_SUBNET_A=$(stack_output PrivateSubnetAId)"
+            echo "PRIVATE_SUBNET_B=$(stack_output PrivateSubnetBId)"
+            echo "ALB_SECURITY_GROUP_ID=$(stack_output GoProfileAlbSecurityGroupId)"
+            echo "LAMBDA_SECURITY_GROUP_ID=$(stack_output LambdaSecurityGroupId)"
+            echo "DATABASE_SECURITY_GROUP_ID=$(stack_output DatabaseSecurityGroupId)"
+            echo "HTTPS_LISTENER_ARN=$(stack_resource GoProfileHttpsListener)"
+            echo "CLOUD_MAP_NAMESPACE_ID=$(stack_resource GoProfileNamespace)"
+            echo "TASK_EXECUTION_ROLE_ARN=$(stack_output GoProfileTaskExecutionRoleArn)"
+            echo "TASK_ROLE_ARN=$(stack_output GoProfileTaskRoleArn)"
+            echo "DATABASE_ENDPOINT=$(stack_output DatabaseEndpoint)"
+            echo "DATABASE_PORT=$(stack_output DatabasePort)"
+            echo "DATABASE_NAME=$(stack_output DatabaseName)"
+            echo "DATABASE_SECRET_ARN=$(stack_output DatabaseCredentialsSecretArn)"
+            echo "GO_INTERNAL_SECRET_ARN=$(stack_resource GoInternalServiceSecret)"
+            echo "FRONTEND_ORIGIN=${{ vars.FRONTEND_ORIGIN || 'https://fashiontai.online' }}"
+            echo "CLOUDFLARE_PAGES_DOMAIN=${{ vars.CLOUDFLARE_PAGES_DOMAIN || 'bhb-login.pages.dev' }}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Set pull request event
+        env:
+          GITHUB_PR_ACTION: ${{ github.event.action }}
+          GITHUB_PR_MERGED: ${{ github.event.pull_request.merged }}
+        run: |
+          set -euo pipefail
+          case "${GITHUB_PR_ACTION}" in
+            opened)
+              pr_event="PULL_REQUEST_CREATED"
+              ;;
+            synchronize)
+              pr_event="PULL_REQUEST_UPDATED"
+              ;;
+            reopened)
+              pr_event="PULL_REQUEST_REOPENED"
+              ;;
+            closed)
+              if [[ "${GITHUB_PR_MERGED}" == "true" ]]; then
+                pr_event="PULL_REQUEST_MERGED"
+              else
+                pr_event="PULL_REQUEST_CLOSED"
+              fi
+              ;;
+            *)
+              echo "::error::Unsupported pull request action: ${GITHUB_PR_ACTION}"
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "PR_EVENT=${pr_event}"
+            echo "PR_NUMBER=${{ github.event.pull_request.number }}"
+            echo "PR_HEAD_REF=refs/heads/${{ github.event.pull_request.head.ref }}"
+            echo "SOURCE_VERSION=${{ github.event.pull_request.head.sha }}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Setup Go
+        if: github.event.action != 'closed'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: apps/go-profile/go.mod
+          cache-dependency-path: apps/go-profile/go.sum
+
+      - name: Setup QEMU
+        if: github.event.action != 'closed'
+        uses: docker/setup-qemu-action@v4
+
+      - name: Setup Docker Buildx
+        if: github.event.action != 'closed'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Manage preview environment
+        run: bash scripts/manage-pr-environment.sh
+
+      - name: Write preview summary
+        if: github.event.action != 'closed'
+        run: |
+          preview_id="$(node scripts/preview-id.mjs "${PR_HEAD_REF#refs/heads/}")"
+          {
+            echo "## Go PR preview"
+            echo
+            echo "- Preview ID: \`${preview_id}\`"
+            echo "- Public API: https://go-api.fashiontai.online"
+            echo "- Pull request: #${PR_NUMBER}"
+          } >> "${GITHUB_STEP_SUMMARY}"
