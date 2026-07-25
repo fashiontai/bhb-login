@@ -15,7 +15,6 @@ name: Deploy AWS Backend
 #
 # Required GitHub environment variables:
 # - GO_PROFILE_CERTIFICATE_ARN
-# - CODEBUILD_GITHUB_CONNECTION_ARN
 
 on:
   push:
@@ -97,10 +96,9 @@ jobs:
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           GO_INTERNAL_SERVICE_TOKEN: ${{ secrets.GO_INTERNAL_SERVICE_TOKEN }}
           GO_PROFILE_CERTIFICATE_ARN: ${{ vars.GO_PROFILE_CERTIFICATE_ARN }}
-          CODEBUILD_GITHUB_CONNECTION_ARN: ${{ vars.CODEBUILD_GITHUB_CONNECTION_ARN }}
         run: |
           set -euo pipefail
-          for name in AWS_ROLE_TO_ASSUME BETTER_AUTH_SECRET GO_INTERNAL_SERVICE_TOKEN GO_PROFILE_CERTIFICATE_ARN CODEBUILD_GITHUB_CONNECTION_ARN; do
+          for name in AWS_ROLE_TO_ASSUME BETTER_AUTH_SECRET GO_INTERNAL_SERVICE_TOKEN GO_PROFILE_CERTIFICATE_ARN; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing required GitHub deployment value: ${name}"
               exit 1
@@ -174,7 +172,6 @@ jobs:
           GO_INTERNAL_SERVICE_TOKEN: ${{ secrets.GO_INTERNAL_SERVICE_TOKEN }}
           GO_PROFILE_CERTIFICATE_ARN: ${{ vars.GO_PROFILE_CERTIFICATE_ARN }}
           GO_PROFILE_PUBLIC_DOMAIN: ${{ vars.GO_PROFILE_PUBLIC_DOMAIN || 'go-api.fashiontai.online' }}
-          CODEBUILD_GITHUB_CONNECTION_ARN: ${{ vars.CODEBUILD_GITHUB_CONNECTION_ARN }}
           CURRENT_GO_IMAGE_URI: ${{ steps.current_runtime.outputs.image_uri }}
           FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://fashiontai.online' }}
         run: |
@@ -193,7 +190,6 @@ jobs:
             "GoInternalServiceToken=${GO_INTERNAL_SERVICE_TOKEN}"
             "GoProfileCertificateArn=${GO_PROFILE_CERTIFICATE_ARN}"
             "GoProfilePublicDomainName=${GO_PROFILE_PUBLIC_DOMAIN}"
-            "GitHubConnectionArn=${CODEBUILD_GITHUB_CONNECTION_ARN}"
             "NodeEnv=production"
           )
           if [ -n "${CURRENT_GO_IMAGE_URI}" ]; then
@@ -280,7 +276,6 @@ jobs:
           GO_INTERNAL_SERVICE_TOKEN: ${{ secrets.GO_INTERNAL_SERVICE_TOKEN }}
           GO_PROFILE_CERTIFICATE_ARN: ${{ vars.GO_PROFILE_CERTIFICATE_ARN }}
           GO_PROFILE_PUBLIC_DOMAIN: ${{ vars.GO_PROFILE_PUBLIC_DOMAIN || 'go-api.fashiontai.online' }}
-          CODEBUILD_GITHUB_CONNECTION_ARN: ${{ vars.CODEBUILD_GITHUB_CONNECTION_ARN }}
           GO_REPOSITORY_URI: ${{ steps.stack_outputs.outputs.go_repository_uri }}
           API_URL: ${{ steps.stack_outputs.outputs.api_url }}
           FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://fashiontai.online' }}
@@ -299,7 +294,6 @@ jobs:
             "GoInternalServiceToken=${GO_INTERNAL_SERVICE_TOKEN}"
             "GoProfileCertificateArn=${GO_PROFILE_CERTIFICATE_ARN}"
             "GoProfilePublicDomainName=${GO_PROFILE_PUBLIC_DOMAIN}"
-            "GitHubConnectionArn=${CODEBUILD_GITHUB_CONNECTION_ARN}"
             "GoProfileImageUri=${GO_REPOSITORY_URI}:${GITHUB_SHA}"
             "NodeEnv=production"
           )

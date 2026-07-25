@@ -12,10 +12,10 @@ require_variable() {
 
 for name in \
   AWS_DEFAULT_REGION \
-  CODEBUILD_RESOLVED_SOURCE_VERSION \
-  CODEBUILD_WEBHOOK_EVENT \
-  CODEBUILD_WEBHOOK_HEAD_REF \
-  CODEBUILD_WEBHOOK_TRIGGER \
+  SOURCE_VERSION \
+  PR_EVENT \
+  PR_HEAD_REF \
+  PR_NUMBER \
   ECR_REPOSITORY_URI \
   ECS_CLUSTER_NAME \
   VPC_ID \
@@ -38,18 +38,18 @@ for name in \
   require_variable "$name"
 done
 
-if [[ ! "$CODEBUILD_WEBHOOK_TRIGGER" =~ ^pr/([0-9]+)$ ]]; then
-  printf 'Unsupported CodeBuild trigger: %s\n' "$CODEBUILD_WEBHOOK_TRIGGER" >&2
+if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+  printf 'Invalid pull request number: %s\n' "$PR_NUMBER" >&2
   exit 1
 fi
 
-pull_request_number="${BASH_REMATCH[1]}"
-if ((pull_request_number > 49000)); then
+pull_request_number="$PR_NUMBER"
+if ((pull_request_number < 1 || pull_request_number > 49000)); then
   printf 'Pull request number %s exceeds the listener priority range\n' "$pull_request_number" >&2
   exit 1
 fi
 
-branch_name="${CODEBUILD_WEBHOOK_HEAD_REF#refs/heads/}"
+branch_name="${PR_HEAD_REF#refs/heads/}"
 preview_id="$(node scripts/preview-id.mjs "$branch_name")"
 stack_name="bhb-login-pr-${pull_request_number}"
 database_schema="pr_${pull_request_number}"
@@ -128,16 +128,17 @@ deploy_preview() {
 
   local registry image_tag image_uri
   registry="${ECR_REPOSITORY_URI%%/*}"
-  image_tag="pr-${pull_request_number}-${CODEBUILD_RESOLVED_SOURCE_VERSION:0:12}"
+  image_tag="pr-${pull_request_number}-${SOURCE_VERSION:0:12}"
   image_uri="${ECR_REPOSITORY_URI}:${image_tag}"
 
   aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
-  docker build \
+  docker buildx build \
     --file apps/go-profile/Dockerfile \
     --platform linux/arm64 \
+    --provenance=false \
+    --push \
     --tag "$image_uri" \
     apps/go-profile
-  docker push "$image_uri"
 
   aws cloudformation deploy \
     --stack-name "$stack_name" \
@@ -176,7 +177,7 @@ deploy_preview() {
   printf 'Preview %s is ready for PR %s.\n' "$preview_id" "$pull_request_number"
 }
 
-case "$CODEBUILD_WEBHOOK_EVENT" in
+case "$PR_EVENT" in
   PULL_REQUEST_CLOSED | PULL_REQUEST_MERGED)
     destroy_preview
     ;;
@@ -184,7 +185,7 @@ case "$CODEBUILD_WEBHOOK_EVENT" in
     deploy_preview
     ;;
   *)
-    printf 'Unsupported webhook event: %s\n' "$CODEBUILD_WEBHOOK_EVENT" >&2
+    printf 'Unsupported pull request event: %s\n' "$PR_EVENT" >&2
     exit 1
     ;;
 esac
