@@ -89,6 +89,10 @@ Go 服务打包为 Linux ARM64 Docker 镜像并保存到 ECR。ECS Fargate Task 
 
 ## 3. 当前生产架构
 
+![bhb-login 当前部署架构](./images/bhb-login-current-architecture.png)
+
+上图用于快速理解整体结构；下面的 Mermaid 图和仓库基础设施模板是网络关系与资源配置的精确来源。
+
 ```mermaid
 flowchart LR
   User["用户浏览器"] --> CF["Cloudflare Pages / CDN<br/>fashiontai.online"]
