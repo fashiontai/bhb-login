@@ -11,6 +11,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { MiddlewareHandler } from "hono/types";
 import { z } from "zod";
+import { publishGithubProfileSavedEvent } from "./github-profile-publisher.js";
 
 interface AppVariables {
 	authenticatedUserId: string;
@@ -395,8 +396,20 @@ app.post("/api/github/accounts", async (c) => {
 				githubId: profile.id,
 			},
 		});
+		const eventPublished = await publishGithubProfileSavedEvent({
+			eventId: crypto.randomUUID(),
+			eventType: "github.profile.saved",
+			githubAccountId: account.id,
+			githubId: profile.id,
+			login: profile.login,
+			occurredAt: new Date().toISOString(),
+			userId: c.get("authenticatedUserId"),
+		});
 
-		return c.json({ account: toGithubAccountResponse(account) });
+		return c.json({
+			account: toGithubAccountResponse(account),
+			event: { published: eventPublished },
+		});
 	} catch (error) {
 		if (error instanceof Response) {
 			return error;

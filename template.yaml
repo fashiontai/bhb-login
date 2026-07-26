@@ -64,6 +64,13 @@ Parameters:
     Type: String
     Default: go-api.fashiontai.online
     Description: Public DNS name routed to the Go profile ALB.
+  EnableHealthCanary:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Create and run the CloudWatch Synthetics health canary.
   NodeEnv:
     Type: String
     Default: production
@@ -110,6 +117,9 @@ Conditions:
     - !Equals
       - !Ref GoProfileImageUri
       - ""
+  ShouldDeployHealthCanary: !Equals
+    - !Ref EnableHealthCanary
+    - "true"
 
 Globals:
   Function:
@@ -342,6 +352,64 @@ Resources:
           - OPTIONS
         AllowOrigins:
           - !Ref CorsOrigin
+
+  GithubProfileEventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: GitHub profile events.
+      TopicName: !Sub "${AWS::StackName}-github-profile-events"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-github-profile-events"
+
+  GithubProfileEventsDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${AWS::StackName}-github-profile-events-dlq"
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-github-profile-events-dlq"
+
+  GithubProfileEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${AWS::StackName}-github-profile-events"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt GithubProfileEventsDlq.Arn
+        maxReceiveCount: 3
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 180
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-github-profile-events"
+
+  GithubProfileEventsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt GithubProfileEventsQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref GithubProfileEventsTopic
+        Version: "2012-10-17"
+      Queues:
+        - !Ref GithubProfileEventsQueue
+
+  GithubProfileEventsSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt GithubProfileEventsQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: !Ref GithubProfileEventsTopic
 
   LambdaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -801,6 +869,10 @@ Resources:
       Policies:
         - AWSLambdaBasicExecutionRole
         - AWSLambdaVPCAccessExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action: sns:Publish
+              Resource: !Ref GithubProfileEventsTopic
       VpcConfig:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroup
@@ -823,6 +895,7 @@ Resources:
           GO_INTERNAL_SERVICE_TOKEN: !Ref GoInternalServiceToken
           GO_PROFILE_SERVICE_NAMESPACE: !Sub "${AWS::StackName}.local"
           GO_PROFILE_SERVICE_URL: !Sub "http://go-profile.${AWS::StackName}.local:8080"
+          GITHUB_PROFILE_EVENTS_TOPIC_ARN: !Ref GithubProfileEventsTopic
       Events:
         Root:
           Type: HttpApi
@@ -870,8 +943,34 @@ Resources:
           GO_PROFILE_SERVICE_NAMESPACE: !Sub "${AWS::StackName}.local"
           GO_PROFILE_SERVICE_URL: !Sub "http://go-profile.${AWS::StackName}.local:8080"
 
+  GithubProfileEventWorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-github-profile-event-worker"
+      CodeUri: apps/server/dist/
+      Handler: github-profile-event-worker.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sqs:DeleteMessage
+                - sqs:GetQueueAttributes
+                - sqs:ReceiveMessage
+              Resource: !GetAtt GithubProfileEventsQueue.Arn
+      Events:
+        GithubProfileEvents:
+          Type: SQS
+          Properties:
+            BatchSize: 5
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            MaximumBatchingWindowInSeconds: 10
+            Queue: !GetAtt GithubProfileEventsQueue.Arn
+
   SyntheticsArtifactBucket:
     Type: AWS::S3::Bucket
+    Condition: ShouldDeployHealthCanary
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -899,6 +998,7 @@ Resources:
 
   SyntheticsExecutionRole:
     Type: AWS::IAM::Role
+    Condition: ShouldDeployHealthCanary
     Properties:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -945,6 +1045,7 @@ Resources:
 
   HealthCanary:
     Type: AWS::Synthetics::Canary
+    Condition: ShouldDeployHealthCanary
     Properties:
       ArtifactS3Location: !Sub "s3://${SyntheticsArtifactBucket}/canaries"
       Code:
@@ -976,7 +1077,7 @@ Resources:
       FailureRetentionPeriod: 30
       Name: !Sub "${AWS::StackName}-health"
       RunConfig:
-        MemoryInMB: 512
+        MemoryInMB: 960
         TimeoutInSeconds: 60
       RuntimeVersion: syn-nodejs-puppeteer-17.0
       Schedule:
@@ -1076,9 +1177,26 @@ Outputs:
     Condition: ShouldDeployGoProfileService
     Description: ECS service name for the Go profile application.
     Value: !GetAtt GoProfileService.Name
+  GithubProfileEventsTopicArn:
+    Description: SNS topic ARN for GitHub profile saved events.
+    Value: !Ref GithubProfileEventsTopic
+  GithubProfileEventsQueueUrl:
+    Description: SQS queue URL for GitHub profile saved events.
+    Value: !Ref GithubProfileEventsQueue
+  GithubProfileEventsQueueArn:
+    Description: SQS queue ARN for GitHub profile saved events.
+    Value: !GetAtt GithubProfileEventsQueue.Arn
+  GithubProfileEventsDlqUrl:
+    Description: SQS dead-letter queue URL for GitHub profile saved events.
+    Value: !Ref GithubProfileEventsDlq
+  GithubProfileEventsDlqArn:
+    Description: SQS dead-letter queue ARN for GitHub profile saved events.
+    Value: !GetAtt GithubProfileEventsDlq.Arn
   HealthCanaryName:
+    Condition: ShouldDeployHealthCanary
     Description: CloudWatch Synthetics canary checking the Node and Go health endpoints.
     Value: !Ref HealthCanary
   SyntheticsArtifactBucketName:
+    Condition: ShouldDeployHealthCanary
     Description: S3 bucket retaining CloudWatch Synthetics artifacts.
     Value: !Ref SyntheticsArtifactBucket

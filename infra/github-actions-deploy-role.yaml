@@ -301,6 +301,37 @@ Resources:
                 Action:
                   - lambda:GetLayerVersion
                 Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:172291836251:layer:Synthetics:*"
+              - Sid: MessagingResourceDeployment
+                Effect: Allow
+                Action:
+                  - lambda:CreateEventSourceMapping
+                  - lambda:DeleteEventSourceMapping
+                  - lambda:GetEventSourceMapping
+                  - lambda:ListEventSourceMappings
+                  - lambda:UpdateEventSourceMapping
+                  - sns:CreateTopic
+                  - sns:DeleteTopic
+                  - sns:GetSubscriptionAttributes
+                  - sns:GetTopicAttributes
+                  - sns:ListTagsForResource
+                  - sns:ListSubscriptionsByTopic
+                  - sns:SetTopicAttributes
+                  - sns:Subscribe
+                  - sns:TagResource
+                  - sns:Unsubscribe
+                  - sns:UntagResource
+                  - sqs:AddPermission
+                  - sqs:CreateQueue
+                  - sqs:DeleteMessage
+                  - sqs:DeleteQueue
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                  - sqs:ListQueueTags
+                  - sqs:RemovePermission
+                  - sqs:SetQueueAttributes
+                  - sqs:TagQueue
+                  - sqs:UntagQueue
+                Resource: "*"
               - Sid: EcsFargateDeployment
                 Effect: Allow
                 Action:

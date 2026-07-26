@@ -11,6 +11,7 @@
     "test:e2e": "node --test e2e/"
   },
   "dependencies": {
+    "@aws-sdk/client-sns": "^3.1095.0",
     "@bhb-login/api": "workspace:*",
     "@bhb-login/auth": "workspace:*",
     "@bhb-login/db": "workspace:*",

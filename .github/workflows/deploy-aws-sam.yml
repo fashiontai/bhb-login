@@ -12,6 +12,7 @@ name: Deploy AWS Backend
 # - DATABASE_MAX_CAPACITY
 # - FRONTEND_ORIGIN
 # - GO_PROFILE_PUBLIC_DOMAIN
+# - ENABLE_HEALTH_CANARY (set to true after the Lambda memory quota is approved)
 #
 # Required GitHub environment variables:
 # - GO_PROFILE_CERTIFICATE_ARN
@@ -172,6 +173,7 @@ jobs:
           GO_INTERNAL_SERVICE_TOKEN: ${{ secrets.GO_INTERNAL_SERVICE_TOKEN }}
           GO_PROFILE_CERTIFICATE_ARN: ${{ vars.GO_PROFILE_CERTIFICATE_ARN }}
           GO_PROFILE_PUBLIC_DOMAIN: ${{ vars.GO_PROFILE_PUBLIC_DOMAIN || 'go-api.fashiontai.online' }}
+          ENABLE_HEALTH_CANARY: ${{ vars.ENABLE_HEALTH_CANARY || 'false' }}
           CURRENT_GO_IMAGE_URI: ${{ steps.current_runtime.outputs.image_uri }}
           FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://fashiontai.online' }}
         run: |
@@ -190,6 +192,7 @@ jobs:
             "GoInternalServiceToken=${GO_INTERNAL_SERVICE_TOKEN}"
             "GoProfileCertificateArn=${GO_PROFILE_CERTIFICATE_ARN}"
             "GoProfilePublicDomainName=${GO_PROFILE_PUBLIC_DOMAIN}"
+            "EnableHealthCanary=${ENABLE_HEALTH_CANARY}"
             "NodeEnv=production"
           )
           if [ -n "${CURRENT_GO_IMAGE_URI}" ]; then
