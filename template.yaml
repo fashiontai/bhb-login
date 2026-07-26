@@ -870,6 +870,122 @@ Resources:
           GO_PROFILE_SERVICE_NAMESPACE: !Sub "${AWS::StackName}.local"
           GO_PROFILE_SERVICE_URL: !Sub "http://go-profile.${AWS::StackName}.local:8080"
 
+  SyntheticsArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireCanaryArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-synthetics-artifacts"
+      VersioningConfiguration:
+        Status: Enabled
+
+  SyntheticsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchSyntheticsExecution
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${SyntheticsArtifactBucket}/canaries/*"
+              - Effect: Allow
+                Action: s3:GetBucketLocation
+                Resource: !GetAtt SyntheticsArtifactBucket.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub
+                  - "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cwsyn-${CanaryName}-*"
+                  - CanaryName: !Sub "${AWS::StackName}-health"
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - xray:PutTraceSegments
+                Resource: "*"
+              - Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: CloudWatchSynthetics
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-synthetics-role"
+
+  HealthCanary:
+    Type: AWS::Synthetics::Canary
+    Properties:
+      ArtifactS3Location: !Sub "s3://${SyntheticsArtifactBucket}/canaries"
+      Code:
+        Handler: index.handler
+        Script: !Sub |
+          const synthetics = require('@aws/synthetics-puppeteer');
+          const log = require('@aws/synthetics-logger');
+
+          async function checkEndpoint(stepName, url) {
+            await synthetics.executeHttpStep(stepName, url, (response) => {
+              if (response.statusCode < 200 || response.statusCode > 299) {
+                throw new Error(stepName + ' returned HTTP ' + response.statusCode);
+              }
+              log.info(stepName + ' returned HTTP ' + response.statusCode);
+            });
+          }
+
+          exports.handler = async () => {
+            await checkEndpoint(
+              'node-api-health',
+              'https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/api/hello'
+            );
+            await checkEndpoint(
+              'go-api-health',
+              'https://${GoProfilePublicDomainName}/health'
+            );
+          };
+      ExecutionRoleArn: !GetAtt SyntheticsExecutionRole.Arn
+      FailureRetentionPeriod: 30
+      Name: !Sub "${AWS::StackName}-health"
+      RunConfig:
+        TimeoutInSeconds: 60
+      RuntimeVersion: syn-nodejs-puppeteer-17.0
+      Schedule:
+        Expression: rate(5 minutes)
+      StartCanaryAfterCreation: true
+      SuccessRetentionPeriod: 7
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-health"
+
 Outputs:
   AppVpcId:
     Description: Application VPC ID.
@@ -959,3 +1075,9 @@ Outputs:
     Condition: ShouldDeployGoProfileService
     Description: ECS service name for the Go profile application.
     Value: !GetAtt GoProfileService.Name
+  HealthCanaryName:
+    Description: CloudWatch Synthetics canary checking the Node and Go health endpoints.
+    Value: !Ref HealthCanary
+  SyntheticsArtifactBucketName:
+    Description: S3 bucket retaining CloudWatch Synthetics artifacts.
+    Value: !Ref SyntheticsArtifactBucket

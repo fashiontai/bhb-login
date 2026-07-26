@@ -283,6 +283,19 @@ Resources:
                   - ecr:UntagResource
                   - ecr:UploadLayerPart
                 Resource: "*"
+              - Sid: CloudWatchSyntheticsDeployment
+                Effect: Allow
+                Action:
+                  - synthetics:CreateCanary
+                  - synthetics:DeleteCanary
+                  - synthetics:DescribeCanaries
+                  - synthetics:GetCanary
+                  - synthetics:StartCanary
+                  - synthetics:StopCanary
+                  - synthetics:TagResource
+                  - synthetics:UntagResource
+                  - synthetics:UpdateCanary
+                Resource: "*"
               - Sid: EcsFargateDeployment
                 Effect: Allow
                 Action:
