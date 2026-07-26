@@ -976,6 +976,7 @@ Resources:
       FailureRetentionPeriod: 30
       Name: !Sub "${AWS::StackName}-health"
       RunConfig:
+        MemoryInMB: 512
         TimeoutInSeconds: 60
       RuntimeVersion: syn-nodejs-puppeteer-17.0
       Schedule:

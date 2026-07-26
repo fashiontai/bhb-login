@@ -296,6 +296,11 @@ Resources:
                   - synthetics:UntagResource
                   - synthetics:UpdateCanary
                 Resource: "*"
+              - Sid: ReadCloudWatchSyntheticsLayer
+                Effect: Allow
+                Action:
+                  - lambda:GetLayerVersion
+                Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:172291836251:layer:Synthetics:*"
               - Sid: EcsFargateDeployment
                 Effect: Allow
                 Action:
