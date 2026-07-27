@@ -236,6 +236,7 @@ app.get("/api/hello", (c) =>
 		message: "Hello from Hono on AWS SAM",
 		runtime: "hono",
 		service: "bhb-login",
+		lambdaVersion: process.env.AWS_LAMBDA_FUNCTION_VERSION ?? "local",
 		timestamp: new Date().toISOString(),
 	})
 );
