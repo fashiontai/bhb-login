@@ -71,6 +71,13 @@ Parameters:
       - "true"
       - "false"
     Description: Create and run the CloudWatch Synthetics health canary.
+  EnableApiCanary:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Enable the Lambda CodeDeploy canary deployment.
   NodeEnv:
     Type: String
     Default: production
@@ -352,6 +359,24 @@ Resources:
           - OPTIONS
         AllowOrigins:
           - !Ref CorsOrigin
+
+  ApiAliasErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Roll back the API Lambda canary when the live alias reports an error.
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+        - Name: Resource
+          Value: !Sub "${ApiFunction}:live"
+      EvaluationPeriods: 1
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Period: 60
+      Statistic: Sum
+      Threshold: 0
+      TreatMissingData: notBreaching
 
   GithubProfileEventsTopic:
     Type: AWS::SNS::Topic
@@ -866,6 +891,15 @@ Resources:
       FunctionName: !Sub "${AWS::StackName}-api"
       CodeUri: apps/server/dist/
       Handler: index.handler
+      AutoPublishAlias: live
+      AutoPublishAliasAllProperties: true
+      DeploymentPreference:
+        Enabled: !Equals
+          - !Ref EnableApiCanary
+          - "true"
+        Type: Canary10Percent5Minutes
+        Alarms:
+          - !Ref ApiAliasErrorAlarm
       Policies:
         - AWSLambdaBasicExecutionRole
         - AWSLambdaVPCAccessExecutionRole
@@ -1146,6 +1180,9 @@ Outputs:
   ApiUrl:
     Description: HTTP API URL.
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+  ApiAliasArn:
+    Description: Lambda alias ARN used by the API deployment.
+    Value: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiFunction}:live"
   GoProfileRepositoryName:
     Description: ECR repository name for the Go profile service.
     Value: !Ref GoProfileRepository

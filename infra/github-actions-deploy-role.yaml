@@ -437,6 +437,46 @@ Resources:
                   - ssm:GetParameter
                   - ssm:GetParameters
                 Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}::parameter/aws/service/ami-amazon-linux-latest/*"
+
+  GitHubDeployCanaryPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Lambda Alias, CloudWatch Alarm, and CodeDeploy permissions for SAM canary deployments.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - cloudwatch:DeleteAlarms
+              - cloudwatch:DescribeAlarms
+              - cloudwatch:PutMetricAlarm
+              - codedeploy:CreateApplication
+              - codedeploy:CreateDeployment
+              - codedeploy:CreateDeploymentGroup
+              - codedeploy:DeleteApplication
+              - codedeploy:DeleteDeploymentGroup
+              - codedeploy:GetApplication
+              - codedeploy:GetDeployment
+              - codedeploy:GetDeploymentConfig
+              - codedeploy:GetDeploymentGroup
+              - codedeploy:ListApplications
+              - codedeploy:ListDeploymentConfigs
+              - codedeploy:ListDeployments
+              - codedeploy:ListDeploymentGroups
+              - codedeploy:ListTagsForResource
+              - codedeploy:StopDeployment
+              - codedeploy:TagResource
+              - codedeploy:UntagResource
+              - codedeploy:UpdateDeploymentGroup
+              - lambda:CreateAlias
+              - lambda:DeleteAlias
+              - lambda:GetAlias
+              - lambda:ListAliases
+              - lambda:UpdateAlias
+            Resource: "*"
+      Roles:
+        - !Ref GitHubDeployRole
+
 Outputs:
   GitHubDeployRoleArn:
     Description: Role ARN to store in GitHub secret AWS_ROLE_TO_ASSUME.
