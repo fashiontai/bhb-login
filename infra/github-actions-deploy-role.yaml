@@ -464,6 +464,7 @@ Resources:
               - codedeploy:ListDeployments
               - codedeploy:ListDeploymentGroups
               - codedeploy:ListTagsForResource
+              - codedeploy:RegisterApplicationRevision
               - codedeploy:StopDeployment
               - codedeploy:TagResource
               - codedeploy:UntagResource
