@@ -1,0 +1,214 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: BHB Login read-only Observer Agent operations stack.
+
+Parameters:
+  ApplicationStackName:
+    Type: String
+    Default: bhb-login
+    Description: Main application CloudFormation stack name.
+  ApiFunctionName:
+    Type: String
+    Default: bhb-login-api
+    Description: Node/Hono Lambda function name.
+  ApiAliasName:
+    Type: String
+    Default: live
+    Description: Lambda alias monitored by the Observer Agent.
+  EcsClusterName:
+    Type: String
+    Description: Production Go ECS cluster name.
+  EcsServiceName:
+    Type: String
+    Description: Production Go ECS service name.
+  GoTargetGroupArn:
+    Type: String
+    Description: Production Go ALB target group ARN.
+  DatabaseClusterIdentifier:
+    Type: String
+    Description: Aurora PostgreSQL cluster identifier.
+  GithubEventsQueueUrl:
+    Type: String
+    Description: Main GitHub profile events queue URL.
+  GithubEventsDlqUrl:
+    Type: String
+    Description: GitHub profile events dead-letter queue URL.
+  LogRetentionInDays:
+    Type: Number
+    Default: 14
+    AllowedValues:
+      - 1
+      - 3
+      - 5
+      - 7
+      - 14
+      - 30
+      - 60
+      - 90
+    Description: Observer Agent CloudWatch log retention.
+
+Resources:
+  OpsEventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: BHB Login operations events.
+      TopicName: !Sub "${ApplicationStackName}-ops-events"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ApplicationStackName}-ops-events"
+
+  OpsEventsDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${ApplicationStackName}-ops-events-dlq"
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ApplicationStackName}-ops-events-dlq"
+
+  OpsEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${ApplicationStackName}-ops-events"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OpsEventsDlq.Arn
+        maxReceiveCount: 3
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 180
+      Tags:
+        - Key: Name
+          Value: !Sub "${ApplicationStackName}-ops-events"
+
+  OpsEventsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt OpsEventsQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref OpsEventsTopic
+      Queues:
+        - !Ref OpsEventsQueue
+
+  OpsEventsSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt OpsEventsQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: !Ref OpsEventsTopic
+
+  OpsAlarmStateChangeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Send CloudWatch alarm state changes to the read-only Observer Agent.
+      EventBusName: default
+      EventPattern:
+        source:
+          - aws.cloudwatch
+        detail-type:
+          - CloudWatch Alarm State Change
+        detail:
+          state:
+            value:
+              - ALARM
+              - INSUFFICIENT_DATA
+      State: ENABLED
+      Targets:
+        - Arn: !Ref OpsEventsTopic
+          Id: OpsEventsTopicTarget
+
+  OpsEventsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref OpsEventsTopic
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt OpsAlarmStateChangeRule.Arn
+      Topics:
+        - !Ref OpsEventsTopic
+
+  ObserverAgentLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ApplicationStackName}-ops-observer"
+      RetentionInDays: !Ref LogRetentionInDays
+
+  ObserverAgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ApplicationStackName}-ops-observer"
+      CodeUri: ../apps/ops-agent/dist/
+      Handler: observer.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - arm64
+      MemorySize: 512
+      Timeout: 60
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action:
+                - cloudwatch:DescribeAlarms
+                - ecs:DescribeClusters
+                - ecs:DescribeServices
+                - elasticloadbalancing:DescribeTargetHealth
+                - lambda:GetAlias
+                - rds:DescribeDBClusters
+                - sqs:ChangeMessageVisibility
+                - sqs:DeleteMessage
+                - sqs:GetQueueAttributes
+                - sqs:ReceiveMessage
+              Resource: "*"
+      Environment:
+        Variables:
+          OPS_API_FUNCTION_NAME: !Ref ApiFunctionName
+          OPS_API_ALIAS_NAME: !Ref ApiAliasName
+          OPS_ECS_CLUSTER_NAME: !Ref EcsClusterName
+          OPS_ECS_SERVICE_NAME: !Ref EcsServiceName
+          OPS_GO_TARGET_GROUP_ARN: !Ref GoTargetGroupArn
+          OPS_DATABASE_CLUSTER_IDENTIFIER: !Ref DatabaseClusterIdentifier
+          OPS_GITHUB_EVENTS_QUEUE_URL: !Ref GithubEventsQueueUrl
+          OPS_GITHUB_EVENTS_DLQ_URL: !Ref GithubEventsDlqUrl
+          OPS_APPLICATION_STACK_NAME: !Ref ApplicationStackName
+      Events:
+        OpsEvents:
+          Type: SQS
+          Properties:
+            BatchSize: 5
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            MaximumBatchingWindowInSeconds: 10
+            Queue: !GetAtt OpsEventsQueue.Arn
+
+Outputs:
+  ObserverAgentFunctionName:
+    Description: Observer Agent Lambda function name.
+    Value: !Ref ObserverAgentFunction
+  OpsEventsTopicArn:
+    Description: SNS topic receiving operations events.
+    Value: !Ref OpsEventsTopic
+  OpsEventsQueueUrl:
+    Description: SQS queue consumed by the Observer Agent.
+    Value: !Ref OpsEventsQueue
+  OpsEventsDlqUrl:
+    Description: Observer Agent dead-letter queue URL.
+    Value: !Ref OpsEventsDlq

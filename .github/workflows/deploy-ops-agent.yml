@@ -1,0 +1,152 @@
+name: Deploy Observer Agent
+
+# Required GitHub environment secret:
+# - AWS_ROLE_TO_ASSUME
+#
+# Optional GitHub environment variables:
+# - AWS_REGION
+# - OPS_STACK_NAME
+# - SAM_STACK_NAME
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/deploy-ops-agent.yml"
+      - "apps/ops-agent/**"
+      - "infra/ops-agent.yaml"
+      - "infra/github-actions-deploy-role.yaml"
+      - "template.yaml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-northeast-1' }}
+  MAIN_STACK_NAME: ${{ vars.SAM_STACK_NAME || 'bhb-login' }}
+  OPS_STACK_NAME: ${{ vars.OPS_STACK_NAME || 'bhb-login-ops' }}
+  NODE_VERSION: "24"
+  PNPM_VERSION: "11.10.0"
+
+jobs:
+  deploy:
+    name: Build and deploy Observer Agent
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@${PNPM_VERSION} --activate
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        env:
+          DATABASE_URL: postgresql://bhbadmin:localpassword123456@localhost:5432/bhblogin
+        run: pnpm install --frozen-lockfile
+
+      - name: Check and build Observer Agent
+        run: |
+          pnpm --filter ops-agent check-types
+          pnpm --filter ops-agent build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: bhb-login-ops-deploy
+
+      - name: Read main stack outputs
+        id: main_outputs
+        run: |
+          set -euo pipefail
+          stack_output() {
+            aws cloudformation describe-stacks \
+              --stack-name "${MAIN_STACK_NAME}" \
+              --region "${AWS_REGION}" \
+              --query "Stacks[0].Outputs[?OutputKey=='${1}'].OutputValue" \
+              --output text
+          }
+
+          stack_resource() {
+            aws cloudformation describe-stack-resource \
+              --stack-name "${MAIN_STACK_NAME}" \
+              --logical-resource-id "${1}" \
+              --region "${AWS_REGION}" \
+              --query "StackResourceDetail.PhysicalResourceId" \
+              --output text
+          }
+
+          echo "api_function_name=${MAIN_STACK_NAME}-api" >> "${GITHUB_OUTPUT}"
+          echo "ecs_cluster_name=$(stack_output GoProfileClusterName)" >> "${GITHUB_OUTPUT}"
+          echo "ecs_service_name=$(stack_output GoProfileServiceName)" >> "${GITHUB_OUTPUT}"
+          target_group_arn="$(stack_output GoProfileTargetGroupArn)"
+          if [ -z "${target_group_arn}" ] || [ "${target_group_arn}" = "None" ]; then
+            target_group_arn="$(stack_resource GoProfileTargetGroup)"
+          fi
+          echo "target_group_arn=${target_group_arn}" >> "${GITHUB_OUTPUT}"
+          database_cluster_identifier="$(stack_output DatabaseClusterIdentifier)"
+          if [ -z "${database_cluster_identifier}" ] || [ "${database_cluster_identifier}" = "None" ]; then
+            database_cluster_identifier="$(stack_resource DatabaseCluster)"
+          fi
+          echo "database_cluster_identifier=${database_cluster_identifier}" >> "${GITHUB_OUTPUT}"
+          echo "github_events_queue_url=$(stack_output GithubProfileEventsQueueUrl)" >> "${GITHUB_OUTPUT}"
+          echo "github_events_dlq_url=$(stack_output GithubProfileEventsDlqUrl)" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate Observer Agent template
+        run: sam validate --template infra/ops-agent.yaml
+
+      - name: Build Observer Agent SAM application
+        run: sam build --template-file infra/ops-agent.yaml --build-dir .aws-sam/ops-agent
+
+      - name: Deploy Observer Agent stack
+        env:
+          API_FUNCTION_NAME: ${{ steps.main_outputs.outputs.api_function_name }}
+          ECS_CLUSTER_NAME: ${{ steps.main_outputs.outputs.ecs_cluster_name }}
+          ECS_SERVICE_NAME: ${{ steps.main_outputs.outputs.ecs_service_name }}
+          TARGET_GROUP_ARN: ${{ steps.main_outputs.outputs.target_group_arn }}
+          DATABASE_CLUSTER_IDENTIFIER: ${{ steps.main_outputs.outputs.database_cluster_identifier }}
+          GITHUB_EVENTS_QUEUE_URL: ${{ steps.main_outputs.outputs.github_events_queue_url }}
+          GITHUB_EVENTS_DLQ_URL: ${{ steps.main_outputs.outputs.github_events_dlq_url }}
+        run: |
+          set -euo pipefail
+          sam deploy \
+            --template-file .aws-sam/ops-agent/template.yaml \
+            --stack-name "${OPS_STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --resolve-s3 \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              "ApplicationStackName=${MAIN_STACK_NAME}" \
+              "ApiFunctionName=${API_FUNCTION_NAME}" \
+              "EcsClusterName=${ECS_CLUSTER_NAME}" \
+              "EcsServiceName=${ECS_SERVICE_NAME}" \
+              "GoTargetGroupArn=${TARGET_GROUP_ARN}" \
+              "DatabaseClusterIdentifier=${DATABASE_CLUSTER_IDENTIFIER}" \
+              "GithubEventsQueueUrl=${GITHUB_EVENTS_QUEUE_URL}" \
+              "GithubEventsDlqUrl=${GITHUB_EVENTS_DLQ_URL}"
+
+      - name: Print Observer Agent outputs
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "${OPS_STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --query "Stacks[0].Outputs" \
+            --output table

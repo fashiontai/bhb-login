@@ -1183,6 +1183,9 @@ Outputs:
   ApiAliasArn:
     Description: Lambda alias ARN used by the API deployment.
     Value: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiFunction}:live"
+  ApiFunctionName:
+    Description: Lambda function name used by the Node/Hono API.
+    Value: !Ref ApiFunction
   GoProfileRepositoryName:
     Description: ECR repository name for the Go profile service.
     Value: !Ref GoProfileRepository
@@ -1207,6 +1210,12 @@ Outputs:
   GoProfileAlbDnsName:
     Description: Public ALB DNS name for the Go profile service.
     Value: !GetAtt GoProfileLoadBalancer.DNSName
+  GoProfileTargetGroupArn:
+    Description: Target group ARN used by the production Go profile ALB.
+    Value: !Ref GoProfileTargetGroup
+  DatabaseClusterIdentifier:
+    Description: Aurora PostgreSQL cluster identifier used by the application.
+    Value: !Ref DatabaseCluster
   GoProfilePublicUrl:
     Description: Public HTTPS URL for Go profile health and read-only endpoints.
     Value: !Sub "https://${GoProfilePublicDomainName}"

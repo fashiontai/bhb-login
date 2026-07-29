@@ -20,6 +20,7 @@
 | 本地连库 | SSM Bastion 端口转发 | 已上线 |
 | 后端 CI/CD | GitHub Actions + OIDC + SAM | 已上线 |
 | PR 独立环境 | Cloudflare Preview + GitHub Actions + 独立 ECS/Schema | 已验证 |
+| Observer Agent | 独立 SAM 栈 + EventBridge + SNS/SQS/DLQ，只读观测 Lambda/ECS/ALB/Aurora | 已实现，待部署 |
 | CodeBuild | 因账号并发配额为 0，改由 GitHub Actions 执行 | 未使用 |
 | Bedrock | 当前业务不需要 | 未使用 |
 

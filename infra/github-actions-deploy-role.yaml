@@ -332,6 +332,18 @@ Resources:
                   - sqs:TagQueue
                   - sqs:UntagQueue
                 Resource: "*"
+              - Sid: EventBridgeOperationsDeployment
+                Effect: Allow
+                Action:
+                  - events:DeleteRule
+                  - events:DescribeRule
+                  - events:ListTagsForResource
+                  - events:PutRule
+                  - events:PutTargets
+                  - events:RemoveTargets
+                  - events:TagResource
+                  - events:UntagResource
+                Resource: "*"
               - Sid: EcsFargateDeployment
                 Effect: Allow
                 Action:
