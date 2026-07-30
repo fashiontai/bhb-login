@@ -330,11 +330,18 @@ export const triage = (snapshot: ObservationSnapshot): TriageResult => {
 	inspectDatabase(snapshot, findings);
 	inspectQueues(snapshot, findings);
 
-	const severity = findings.some((finding) => finding.severity === "CRITICAL")
-		? "CRITICAL"
-		: findings.some((finding) => finding.severity === "DEGRADED")
-			? "DEGRADED"
-			: "HEALTHY";
+	const hasCriticalFinding = findings.some(
+		(finding) => finding.severity === "CRITICAL"
+	);
+	const hasDegradedFinding = findings.some(
+		(finding) => finding.severity === "DEGRADED"
+	);
+	let severity: TriageSeverity = "HEALTHY";
+	if (hasCriticalFinding) {
+		severity = "CRITICAL";
+	} else if (hasDegradedFinding) {
+		severity = "DEGRADED";
+	}
 	const recommendedActions = [
 		...new Set(findings.map((finding) => finding.recommendedAction)),
 	];

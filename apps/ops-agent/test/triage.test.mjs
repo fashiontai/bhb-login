@@ -3,6 +3,9 @@ import test from "node:test";
 
 import { parseObservation, triage } from "../dist/triage.mjs";
 
+const invalidObservationPattern =
+	/Triage received an invalid observation payload/;
+
 const healthySnapshot = {
 	type: "ops.observation.completed",
 	event: {
@@ -71,8 +74,5 @@ test("parses an observation from an SNS envelope", () => {
 });
 
 test("rejects malformed observations", () => {
-	assert.throws(
-		() => parseObservation("not-json"),
-		/Triage received an invalid observation payload/
-	);
+	assert.throws(() => parseObservation("not-json"), invalidObservationPattern);
 });

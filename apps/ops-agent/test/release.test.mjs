@@ -6,6 +6,10 @@ import {
 	parseTriageResult,
 } from "../dist/release.mjs";
 
+const criticalSubjectPattern = /CRITICAL/;
+const incompletePayloadPattern =
+	/Release Agent received an incomplete triage payload/;
+
 const healthyResult = {
 	type: "ops.triage.completed",
 	severity: "HEALTHY",
@@ -42,7 +46,7 @@ test("creates an approval notification for a critical result", () => {
 	assert.equal(result?.type, "ops.notification.created");
 	assert.equal(result?.severity, "CRITICAL");
 	assert.equal(result?.requiresApproval, true);
-	assert.match(result?.subject ?? "", /CRITICAL/);
+	assert.match(result?.subject ?? "", criticalSubjectPattern);
 });
 
 test("parses a triage result from an SNS envelope", () => {
@@ -57,6 +61,6 @@ test("parses a triage result from an SNS envelope", () => {
 test("rejects an incomplete triage result", () => {
 	assert.throws(
 		() => parseTriageResult(JSON.stringify({ type: "ops.triage.completed" })),
-		/Release Agent received an incomplete triage payload/
+		incompletePayloadPattern
 	);
 });
