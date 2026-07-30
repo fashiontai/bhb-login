@@ -16,6 +16,11 @@ CloudWatch Alarm State Change
   -> Triage SQS Queue
   -> Triage Agent Lambda
   -> CloudWatch Logs
+  -> Triage Results SNS Topic
+  -> Release Queue
+  -> Release/Approval Agent
+  -> Notifications SNS Topic
+  -> 可选邮箱订阅
 ```
 
 Observer Agent 收集以下信息：
@@ -31,12 +36,15 @@ Observer Agent 收集以下信息：
 
 Triage Agent 使用确定性规则输出 `ops.triage.completed`，包含严重级别、证据、建议动作、置信度和是否需要人工审批。当前不依赖 Bedrock，也没有任何生产写权限。
 
+Release/Approval Agent 只处理非 `HEALTHY` 结果，生成 `ops.notification.created` 并发布到 Notifications SNS Topic。当前版本只负责通知和审批闸门，不执行 Lambda 回滚、Alias 调整、ECS 重启或 DLQ 重放。
+
 ## 2. 代码位置
 
 - Agent 代码：`apps/ops-agent/src/observer.ts`
 - Triage 代码：`apps/ops-agent/src/triage.ts`
 - 单元测试：`apps/ops-agent/test/observer.test.mjs`
 - Triage 测试：`apps/ops-agent/test/triage.test.mjs`
+- Release 测试：`apps/ops-agent/test/release.test.mjs`
 - 独立 SAM 栈：`infra/ops-agent.yaml`
 - 独立部署工作流：`.github/workflows/deploy-ops-agent.yml`
 - 主栈输出：`template.yaml`
@@ -68,7 +76,15 @@ AWS_DEFAULT_REGION=ap-northeast-1 sam validate --lint --template infra/ops-agent
 1. 构建并打包 `apps/ops-agent`。
 2. 读取主栈资源 Outputs。
 3. 校验并部署 `bhb-login-ops` 独立栈。
-4. 输出 Ops Topic、Observations Topic、Queue、Triage Queue、DLQ 和两个 Lambda 名称。
+4. 输出 Ops Topic、Observations Topic、Triage Results Topic、Notifications Topic、各级 Queue/DLQ 和三个 Lambda 名称。
+
+如果要接收邮箱通知，在 GitHub `production` Environment 的 Variables 中增加：
+
+```text
+OPS_NOTIFICATION_EMAIL=your-email@example.com
+```
+
+部署后 AWS SNS 会向该地址发送订阅确认邮件。只有点击确认链接后，`DEGRADED`、`CRITICAL` 或 `UNKNOWN` 结果才会发送到邮箱。
 
 ## 5. 验证事件链路
 
@@ -79,6 +95,7 @@ AWS_DEFAULT_REGION=ap-northeast-1 sam validate --lint --template infra/ops-agent
 3. Ops SQS Queue 存在 Lambda 消费映射。
 4. Observer Lambda 的 CloudWatch Log Group `/aws/lambda/bhb-login-ops-observer` 有日志。
 5. Triage Lambda 的 CloudWatch Log Group `/aws/lambda/bhb-login-ops-triage` 有日志。
+6. Release Lambda 的 CloudWatch Log Group `/aws/lambda/bhb-login-ops-release` 有日志。
 
 可通过 CloudWatch Alarm 的真实状态变化触发一次观测。不要为了测试故意破坏生产服务；后续可以增加一个独立的测试 EventBridge 事件注入流程。
 
@@ -86,5 +103,7 @@ AWS_DEFAULT_REGION=ap-northeast-1 sam validate --lint --template infra/ops-agent
 
 - Observer Agent 没有 `lambda:UpdateFunctionCode`、`lambda:UpdateAlias`、`ecs:UpdateService`、`ecs:StopTask` 或 DLQ 重放权限。由于它由 SQS 触发，执行角色仅使用 `ReceiveMessage`、`DeleteMessage`、`ChangeMessageVisibility` 和 `GetQueueAttributes` 完成消息消费确认，并使用 `sns:Publish` 发布观测快照。
 - Triage Agent 不读取 AWS 资源，也没有生产资源写权限；它只消费 Observations Queue 并写入自己的 CloudWatch Log Group。
+- Release/Approval Agent 只拥有消费 Release Queue 和发布 Notifications SNS 的权限，没有 Lambda、ECS、RDS 或 DLQ 操作权限。
+- 邮箱订阅是可选的；未配置 `OPS_NOTIFICATION_EMAIL` 时，Notifications SNS Topic 会创建，但不会创建邮箱订阅。
 - Ops Queue 与既有 GitHub profile 业务队列分开，避免运维事件和业务事件互相影响。
 - 后续增加 Release、Queue/Database Agent 时，继续保持每个 Agent 独立 IAM Role 和独立消费链路。

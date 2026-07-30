@@ -1,3 +1,5 @@
+import { PublishCommand, SNSClient } from "@aws-sdk/client-sns";
+
 interface RecordValue {
 	[key: string]: unknown;
 }
@@ -52,6 +54,9 @@ export interface TriageResult {
 
 const isRecord = (value: unknown): value is RecordValue =>
 	typeof value === "object" && value !== null;
+
+const sns = new SNSClient({});
+const triageResultsTopicArn = process.env.OPS_TRIAGE_RESULTS_TOPIC_ARN ?? "";
 
 const parseJson = (value: string): unknown => {
 	try {
@@ -346,13 +351,28 @@ export const triage = (snapshot: ObservationSnapshot): TriageResult => {
 	};
 };
 
+const publishTriageResult = async (result: TriageResult): Promise<void> => {
+	if (!triageResultsTopicArn) {
+		return;
+	}
+
+	await sns.send(
+		new PublishCommand({
+			Message: JSON.stringify(result),
+			TopicArn: triageResultsTopicArn,
+		})
+	);
+};
+
 export const handler = async (event: SqsEvent) => {
 	const batchItemFailures: Array<{ itemIdentifier: string }> = [];
 
 	for (const record of event.Records) {
 		try {
 			const snapshot = parseObservation(record.body);
-			console.info(JSON.stringify(triage(snapshot)));
+			const result = triage(snapshot);
+			await publishTriageResult(result);
+			console.info(JSON.stringify(result));
 		} catch (error) {
 			console.error("Triage failed to process event", {
 				error: error instanceof Error ? error.message : String(error),

@@ -47,6 +47,14 @@ Parameters:
       - 90
     Description: Observer Agent CloudWatch log retention.
 
+  NotificationEmail:
+    Type: String
+    Default: ""
+    Description: Optional email endpoint for degraded or critical operations notifications.
+
+Conditions:
+  HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
+
 Resources:
   OpsEventsTopic:
     Type: AWS::SNS::Topic
@@ -65,6 +73,24 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ApplicationStackName}-ops-observations"
+
+  OpsTriageResultsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: BHB Login Triage Agent results.
+      TopicName: !Sub "${ApplicationStackName}-ops-triage-results"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ApplicationStackName}-ops-triage-results"
+
+  OpsNotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: BHB Login operations notifications.
+      TopicName: !Sub "${ApplicationStackName}-ops-notifications"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ApplicationStackName}-ops-notifications"
 
   OpsEventsDlq:
     Type: AWS::SQS::Queue
@@ -114,6 +140,30 @@ Resources:
         - Key: Name
           Value: !Sub "${ApplicationStackName}-ops-triage"
 
+  OpsReleaseDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${ApplicationStackName}-ops-release-dlq"
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ApplicationStackName}-ops-release-dlq"
+
+  OpsReleaseQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${ApplicationStackName}-ops-release"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OpsReleaseDlq.Arn
+        maxReceiveCount: 3
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 120
+      Tags:
+        - Key: Name
+          Value: !Sub "${ApplicationStackName}-ops-release"
+
   OpsEventsQueuePolicy:
     Type: AWS::SQS::QueuePolicy
     Properties:
@@ -148,6 +198,23 @@ Resources:
       Queues:
         - !Ref OpsTriageQueue
 
+  OpsReleaseQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt OpsReleaseQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref OpsTriageResultsTopic
+      Queues:
+        - !Ref OpsReleaseQueue
+
   OpsEventsSubscription:
     Type: AWS::SNS::Subscription
     Properties:
@@ -163,6 +230,22 @@ Resources:
       Protocol: sqs
       RawMessageDelivery: true
       TopicArn: !Ref OpsObservationsTopic
+
+  OpsReleaseSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt OpsReleaseQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: !Ref OpsTriageResultsTopic
+
+  OpsNotificationSubscription:
+    Condition: HasNotificationEmail
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !Ref NotificationEmail
+      Protocol: email
+      TopicArn: !Ref OpsNotificationsTopic
 
   OpsAlarmStateChangeRule:
     Type: AWS::Events::Rule
@@ -292,9 +375,15 @@ Resources:
                 - sqs:GetQueueAttributes
                 - sqs:ReceiveMessage
               Resource: !GetAtt OpsTriageQueue.Arn
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sns:Publish
+              Resource: !Ref OpsTriageResultsTopic
       Environment:
         Variables:
           OPS_APPLICATION_STACK_NAME: !Ref ApplicationStackName
+          OPS_TRIAGE_RESULTS_TOPIC_ARN: !Ref OpsTriageResultsTopic
       Events:
         TriageObservations:
           Type: SQS
@@ -305,6 +394,54 @@ Resources:
             MaximumBatchingWindowInSeconds: 10
             Queue: !GetAtt OpsTriageQueue.Arn
 
+  ReleaseAgentLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ApplicationStackName}-ops-release"
+      RetentionInDays: !Ref LogRetentionInDays
+
+  ReleaseAgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ApplicationStackName}-ops-release"
+      CodeUri: ../apps/ops-agent/dist/
+      Handler: release.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - arm64
+      MemorySize: 256
+      Timeout: 30
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sqs:ChangeMessageVisibility
+                - sqs:DeleteMessage
+                - sqs:GetQueueAttributes
+                - sqs:ReceiveMessage
+              Resource: !GetAtt OpsReleaseQueue.Arn
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sns:Publish
+              Resource: !Ref OpsNotificationsTopic
+      Environment:
+        Variables:
+          OPS_APPLICATION_STACK_NAME: !Ref ApplicationStackName
+          OPS_NOTIFICATIONS_TOPIC_ARN: !Ref OpsNotificationsTopic
+      Events:
+        ReleaseTriageResults:
+          Type: SQS
+          Properties:
+            BatchSize: 5
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            MaximumBatchingWindowInSeconds: 10
+            Queue: !GetAtt OpsReleaseQueue.Arn
+
 Outputs:
   ObserverAgentFunctionName:
     Description: Observer Agent Lambda function name.
@@ -312,12 +449,21 @@ Outputs:
   TriageAgentFunctionName:
     Description: Triage Agent Lambda function name.
     Value: !Ref TriageAgentFunction
+  ReleaseAgentFunctionName:
+    Description: Release and approval gate function name.
+    Value: !Ref ReleaseAgentFunction
   OpsEventsTopicArn:
     Description: SNS topic receiving operations events.
     Value: !Ref OpsEventsTopic
   OpsObservationsTopicArn:
     Description: SNS topic carrying Observer Agent observations.
     Value: !Ref OpsObservationsTopic
+  OpsTriageResultsTopicArn:
+    Description: SNS topic carrying Triage Agent results.
+    Value: !Ref OpsTriageResultsTopic
+  OpsNotificationsTopicArn:
+    Description: SNS topic for degraded and critical notifications.
+    Value: !Ref OpsNotificationsTopic
   OpsEventsQueueUrl:
     Description: SQS queue consumed by the Observer Agent.
     Value: !Ref OpsEventsQueue
@@ -330,3 +476,9 @@ Outputs:
   OpsTriageDlqUrl:
     Description: Triage Agent dead-letter queue URL.
     Value: !Ref OpsTriageDlq
+  OpsReleaseQueueUrl:
+    Description: Release and approval gate queue URL.
+    Value: !Ref OpsReleaseQueue
+  OpsReleaseDlqUrl:
+    Description: Release and approval gate dead-letter queue URL.
+    Value: !Ref OpsReleaseDlq
