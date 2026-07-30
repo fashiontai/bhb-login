@@ -27,6 +27,12 @@ CloudWatch Synthetics
 
 ## 开启方式
 
+启用前需要确认 AWS 账号在目标区域的 Lambda 最大内存配额至少为 `960MB`。CloudWatch Synthetics 的运行内存下限是 `960MB`；当前账号配额为 `512MB` 时，CloudFormation 会在创建 Canary 时失败并回滚主栈。因此在配额提升前保持生产环境变量为：
+
+```text
+ENABLE_HEALTH_CANARY=false
+```
+
 在 GitHub `production` Environment Variables 中设置：
 
 ```text
@@ -57,7 +63,7 @@ aws synthetics get-canary \
 aws cloudwatch describe-alarms \
   --profile bhb-new \
   --region ap-northeast-1 \
-  --alarm-names bhb-login-HealthCanaryFailureAlarm \
+  --alarm-names bhb-login-health-canary-failure \
   --query 'MetricAlarms[0].{State:StateValue,Metric:MetricName,Namespace:Namespace}' \
   --output table
 ```
