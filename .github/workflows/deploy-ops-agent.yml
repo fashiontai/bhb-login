@@ -1,4 +1,4 @@
-name: Deploy Observer Agent
+name: Deploy Ops Agents
 
 # Required GitHub environment secret:
 # - AWS_ROLE_TO_ASSUME
@@ -36,7 +36,7 @@ env:
 
 jobs:
   deploy:
-    name: Build and deploy Observer Agent
+    name: Build and deploy Ops Agents
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -59,7 +59,7 @@ jobs:
           DATABASE_URL: postgresql://bhbadmin:localpassword123456@localhost:5432/bhblogin
         run: pnpm install --frozen-lockfile
 
-      - name: Check and build Observer Agent
+      - name: Check and build Ops Agents
         run: |
           pnpm --filter ops-agent check-types
           pnpm --filter ops-agent build
@@ -108,13 +108,13 @@ jobs:
           echo "github_events_queue_url=$(stack_output GithubProfileEventsQueueUrl)" >> "${GITHUB_OUTPUT}"
           echo "github_events_dlq_url=$(stack_output GithubProfileEventsDlqUrl)" >> "${GITHUB_OUTPUT}"
 
-      - name: Validate Observer Agent template
+      - name: Validate Ops Agents template
         run: sam validate --template infra/ops-agent.yaml
 
-      - name: Build Observer Agent SAM application
+      - name: Build Ops Agents SAM application
         run: sam build --template-file infra/ops-agent.yaml --build-dir .aws-sam/ops-agent
 
-      - name: Deploy Observer Agent stack
+      - name: Deploy Ops Agents stack
         env:
           API_FUNCTION_NAME: ${{ steps.main_outputs.outputs.api_function_name }}
           ECS_CLUSTER_NAME: ${{ steps.main_outputs.outputs.ecs_cluster_name }}
@@ -143,7 +143,7 @@ jobs:
               "GithubEventsQueueUrl=${GITHUB_EVENTS_QUEUE_URL}" \
               "GithubEventsDlqUrl=${GITHUB_EVENTS_DLQ_URL}"
 
-      - name: Print Observer Agent outputs
+      - name: Print Ops Agents outputs
         run: |
           aws cloudformation describe-stacks \
             --stack-name "${OPS_STACK_NAME}" \

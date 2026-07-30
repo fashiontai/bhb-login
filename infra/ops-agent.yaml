@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: BHB Login read-only Observer Agent operations stack.
+Description: BHB Login read-only Observer and Triage Agent operations stack.
 
 Parameters:
   ApplicationStackName:
@@ -57,6 +57,15 @@ Resources:
         - Key: Name
           Value: !Sub "${ApplicationStackName}-ops-events"
 
+  OpsObservationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: BHB Login Observer Agent observations.
+      TopicName: !Sub "${ApplicationStackName}-ops-observations"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ApplicationStackName}-ops-observations"
+
   OpsEventsDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -81,6 +90,30 @@ Resources:
         - Key: Name
           Value: !Sub "${ApplicationStackName}-ops-events"
 
+  OpsTriageDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${ApplicationStackName}-ops-triage-dlq"
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ApplicationStackName}-ops-triage-dlq"
+
+  OpsTriageQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${ApplicationStackName}-ops-triage"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OpsTriageDlq.Arn
+        maxReceiveCount: 3
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 180
+      Tags:
+        - Key: Name
+          Value: !Sub "${ApplicationStackName}-ops-triage"
+
   OpsEventsQueuePolicy:
     Type: AWS::SQS::QueuePolicy
     Properties:
@@ -98,6 +131,23 @@ Resources:
       Queues:
         - !Ref OpsEventsQueue
 
+  OpsTriageQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt OpsTriageQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref OpsObservationsTopic
+      Queues:
+        - !Ref OpsTriageQueue
+
   OpsEventsSubscription:
     Type: AWS::SNS::Subscription
     Properties:
@@ -105,6 +155,14 @@ Resources:
       Protocol: sqs
       RawMessageDelivery: true
       TopicArn: !Ref OpsEventsTopic
+
+  OpsTriageSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt OpsTriageQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: !Ref OpsObservationsTopic
 
   OpsAlarmStateChangeRule:
     Type: AWS::Events::Rule
@@ -178,6 +236,11 @@ Resources:
                 - sqs:GetQueueAttributes
                 - sqs:ReceiveMessage
               Resource: "*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sns:Publish
+              Resource: !Ref OpsObservationsTopic
       Environment:
         Variables:
           OPS_API_FUNCTION_NAME: !Ref ApiFunctionName
@@ -188,6 +251,7 @@ Resources:
           OPS_DATABASE_CLUSTER_IDENTIFIER: !Ref DatabaseClusterIdentifier
           OPS_GITHUB_EVENTS_QUEUE_URL: !Ref GithubEventsQueueUrl
           OPS_GITHUB_EVENTS_DLQ_URL: !Ref GithubEventsDlqUrl
+          OPS_OBSERVATIONS_TOPIC_ARN: !Ref OpsObservationsTopic
           OPS_APPLICATION_STACK_NAME: !Ref ApplicationStackName
       Events:
         OpsEvents:
@@ -199,16 +263,70 @@ Resources:
             MaximumBatchingWindowInSeconds: 10
             Queue: !GetAtt OpsEventsQueue.Arn
 
+  TriageAgentLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ApplicationStackName}-ops-triage"
+      RetentionInDays: !Ref LogRetentionInDays
+
+  TriageAgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ApplicationStackName}-ops-triage"
+      CodeUri: ../apps/ops-agent/dist/
+      Handler: triage.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - arm64
+      MemorySize: 256
+      Timeout: 30
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sqs:ChangeMessageVisibility
+                - sqs:DeleteMessage
+                - sqs:GetQueueAttributes
+                - sqs:ReceiveMessage
+              Resource: !GetAtt OpsTriageQueue.Arn
+      Environment:
+        Variables:
+          OPS_APPLICATION_STACK_NAME: !Ref ApplicationStackName
+      Events:
+        TriageObservations:
+          Type: SQS
+          Properties:
+            BatchSize: 5
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            MaximumBatchingWindowInSeconds: 10
+            Queue: !GetAtt OpsTriageQueue.Arn
+
 Outputs:
   ObserverAgentFunctionName:
     Description: Observer Agent Lambda function name.
     Value: !Ref ObserverAgentFunction
+  TriageAgentFunctionName:
+    Description: Triage Agent Lambda function name.
+    Value: !Ref TriageAgentFunction
   OpsEventsTopicArn:
     Description: SNS topic receiving operations events.
     Value: !Ref OpsEventsTopic
+  OpsObservationsTopicArn:
+    Description: SNS topic carrying Observer Agent observations.
+    Value: !Ref OpsObservationsTopic
   OpsEventsQueueUrl:
     Description: SQS queue consumed by the Observer Agent.
     Value: !Ref OpsEventsQueue
   OpsEventsDlqUrl:
     Description: Observer Agent dead-letter queue URL.
     Value: !Ref OpsEventsDlq
+  OpsTriageQueueUrl:
+    Description: Triage Agent queue URL.
+    Value: !Ref OpsTriageQueue
+  OpsTriageDlqUrl:
+    Description: Triage Agent dead-letter queue URL.
+    Value: !Ref OpsTriageDlq

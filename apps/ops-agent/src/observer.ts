@@ -13,6 +13,7 @@ import {
 } from "@aws-sdk/client-elastic-load-balancing-v2";
 import { GetAliasCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { DescribeDBClustersCommand, RDSClient } from "@aws-sdk/client-rds";
+import { PublishCommand, SNSClient } from "@aws-sdk/client-sns";
 import { GetQueueAttributesCommand, SQSClient } from "@aws-sdk/client-sqs";
 
 interface RecordValue {
@@ -63,6 +64,7 @@ const ecs = new ECSClient({});
 const elb = new ElasticLoadBalancingV2Client({});
 const lambda = new LambdaClient({});
 const rds = new RDSClient({});
+const sns = new SNSClient({});
 const sqs = new SQSClient({});
 
 const env = {
@@ -74,6 +76,7 @@ const env = {
 	databaseClusterIdentifier: process.env.OPS_DATABASE_CLUSTER_IDENTIFIER ?? "",
 	githubEventsQueueUrl: process.env.OPS_GITHUB_EVENTS_QUEUE_URL ?? "",
 	githubEventsDlqUrl: process.env.OPS_GITHUB_EVENTS_DLQ_URL ?? "",
+	observationsTopicArn: process.env.OPS_OBSERVATIONS_TOPIC_ARN ?? "",
 };
 
 const isRecord = (value: unknown): value is RecordValue =>
@@ -339,6 +342,21 @@ export const observe = async (
 	};
 };
 
+const publishObservation = async (
+	snapshot: ObservationSnapshot
+): Promise<void> => {
+	if (!env.observationsTopicArn) {
+		return;
+	}
+
+	await sns.send(
+		new PublishCommand({
+			Message: JSON.stringify(snapshot),
+			TopicArn: env.observationsTopicArn,
+		})
+	);
+};
+
 export const handler = async (event: SqsEvent) => {
 	const batchItemFailures: Array<{ itemIdentifier: string }> = [];
 
@@ -346,6 +364,7 @@ export const handler = async (event: SqsEvent) => {
 		try {
 			const alarmEvent = parseAlarmStateChangeEvent(record.body);
 			const snapshot = await observe(alarmEvent);
+			await publishObservation(snapshot);
 			console.info(JSON.stringify(snapshot));
 		} catch (error) {
 			console.error("Observer failed to process event", {
