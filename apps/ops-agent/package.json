@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && cp runtime-package.json dist/package.json",
     "check-types": "tsc -b --pretty false",
     "test": "pnpm build && node --test test/*.test.mjs"
   },
