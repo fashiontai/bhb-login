@@ -1099,6 +1099,10 @@ Resources:
 
           exports.handler = async () => {
             await checkEndpoint(
+              'frontend-health',
+              '${CorsOrigin}'
+            );
+            await checkEndpoint(
               'node-api-health',
               'https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/api/hello'
             );
@@ -1121,6 +1125,24 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${AWS::StackName}-health"
+
+  HealthCanaryFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: ShouldDeployHealthCanary
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-health-canary-failure"
+      AlarmDescription: Alert when the production Synthetics health canary fails.
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: CanaryName
+          Value: !Ref HealthCanary
+      EvaluationPeriods: 1
+      MetricName: Failed
+      Namespace: CloudWatchSynthetics
+      Period: 300
+      Statistic: Sum
+      Threshold: 0
+      TreatMissingData: notBreaching
 
 Outputs:
   AppVpcId:
@@ -1246,3 +1268,7 @@ Outputs:
     Condition: ShouldDeployHealthCanary
     Description: S3 bucket retaining CloudWatch Synthetics artifacts.
     Value: !Ref SyntheticsArtifactBucket
+  HealthCanaryFailureAlarmName:
+    Condition: ShouldDeployHealthCanary
+    Description: CloudWatch Alarm raised when the health canary fails.
+    Value: !Ref HealthCanaryFailureAlarm

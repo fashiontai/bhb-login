@@ -84,3 +84,5 @@
 ## 明日开始点
 
 从 `template.yaml` 和现有 CloudWatch 配置开始，先确认 Node API 的健康检查路径，再添加第一条 CloudWatch Synthetics Canary。
+
+具体实现和验证步骤见 [`health-canary-runbook.md`](./health-canary-runbook.md)。
