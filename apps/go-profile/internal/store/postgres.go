@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/fashiontai/bhb-login/apps/go-profile/internal/github"
+	"github.com/fashiontai/bhb-login/apps/go-profile/internal/performance"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -45,6 +47,59 @@ func (store *Store) Close() {
 
 func (store *Store) Ping(ctx context.Context) error {
 	return store.pool.Ping(ctx)
+}
+
+func (store *Store) SavePerformanceBatch(ctx context.Context, batch performance.EventBatch) error {
+	receivedAt, err := time.Parse(time.RFC3339, batch.ReceivedAt)
+	if err != nil {
+		return fmt.Errorf("parse performance batch received time: %w", err)
+	}
+	if batch.RequestID == "" {
+		return fmt.Errorf("performance batch request ID is required")
+	}
+
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin performance transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	for index, event := range batch.Events {
+		occurredAt, err := time.Parse(time.RFC3339, event.OccurredAt)
+		if err != nil {
+			return fmt.Errorf("parse performance event time: %w", err)
+		}
+		if event.AnonymousID == "" || event.Route == "" || event.SDKVersion == "" {
+			return fmt.Errorf("performance event is missing required fields")
+		}
+		metrics, err := json.Marshal(event.Metrics)
+		if err != nil {
+			return fmt.Errorf("encode performance metrics: %w", err)
+		}
+
+		_, err = tx.Exec(ctx, `
+			INSERT INTO performance_event (
+				id, request_id, event_index, anonymous_id, event_type, route, api_name,
+				release, sdk_version, occurred_at, received_at, api_status, duration_ms,
+				fcp_ms, lcp_ms, inp_ms, cls, metrics
+			) VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), $9, $10, $11,
+				NULLIF($12, 0), NULLIF($13, 0), NULLIF($14, 0), NULLIF($15, 0), NULLIF($16, 0), NULLIF($17, 0), $18::jsonb)
+			ON CONFLICT (id) DO NOTHING`,
+			fmt.Sprintf("%s-%d", batch.RequestID, index), batch.RequestID, index,
+			event.AnonymousID, event.EventType, event.Route, event.Metrics.APIName,
+			event.Release, event.SDKVersion, occurredAt, receivedAt, event.Metrics.APIStatus,
+			event.Metrics.DurationMS, event.Metrics.FCPMS, event.Metrics.LCPMS,
+			event.Metrics.INPMS, event.Metrics.CLS, string(metrics),
+		)
+		if err != nil {
+			return fmt.Errorf("insert performance event: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit performance transaction: %w", err)
+	}
+	return nil
 }
 
 func (store *Store) SaveIntroduction(ctx context.Context, profile github.Profile, userID, locale, content string) (Introduction, error) {

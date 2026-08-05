@@ -13,6 +13,7 @@
   "dependencies": {
     "@bhb-login/api": "workspace:*",
     "@bhb-login/env": "workspace:*",
+    "@bhb-login/performance-sdk": "workspace:*",
     "@bhb-login/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.1",
     "@tanstack/react-form": "^1.28.0",

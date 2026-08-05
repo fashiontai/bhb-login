@@ -8,3 +8,30 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+model PerformanceEvent {
+  id          String   @id
+  requestId   String   @map("request_id")
+  eventIndex  Int      @map("event_index")
+  anonymousId String   @map("anonymous_id")
+  eventType   String   @map("event_type")
+  route       String
+  apiName     String?  @map("api_name")
+  release     String?
+  sdkVersion  String   @map("sdk_version")
+  occurredAt  DateTime @map("occurred_at") @db.Timestamptz(6)
+  receivedAt  DateTime @map("received_at") @db.Timestamptz(6)
+  apiStatus   Int?     @map("api_status")
+  durationMs  Float?   @map("duration_ms")
+  fcpMs       Float?   @map("fcp_ms")
+  lcpMs       Float?   @map("lcp_ms")
+  inpMs       Float?   @map("inp_ms")
+  cls         Float?
+  metrics     Json
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([occurredAt])
+  @@index([route, eventType])
+  @@index([apiName])
+  @@map("performance_event")
+}

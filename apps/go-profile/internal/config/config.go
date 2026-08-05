@@ -14,6 +14,7 @@ type Config struct {
 	DatabaseURL           string
 	GitHubAPIURL          string
 	InternalServiceToken  string
+	PerformanceQueueURL   string
 	Port                  string
 }
 
@@ -35,6 +36,7 @@ func Load() (Config, error) {
 		DatabaseURL:           databaseURL,
 		GitHubAPIURL:          envOrDefault("GITHUB_API_URL", "https://api.github.com"),
 		InternalServiceToken:  os.Getenv("GO_INTERNAL_SERVICE_TOKEN"),
+		PerformanceQueueURL:   os.Getenv("PERFORMANCE_EVENTS_QUEUE_URL"),
 		Port:                  envOrDefault("GO_SERVER_PORT", "8080"),
 	}
 

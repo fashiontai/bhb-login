@@ -5,7 +5,7 @@ import {
 	useNavigate,
 	useRouter,
 } from "@tanstack/react-router";
-import { GitBranchIcon, SparklesIcon } from "lucide-react";
+import { ActivityIcon, GitBranchIcon, SparklesIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import ChangePasswordForm from "@/components/change-password-form";
@@ -53,6 +53,13 @@ function RouteComponent() {
 						>
 							<SparklesIcon aria-hidden="true" className="size-4" />
 							{t.dashboard.personalIntroduction}
+						</Link>
+						<Link
+							className={buttonVariants({ variant: "outline" })}
+							to="/performance"
+						>
+							<ActivityIcon aria-hidden="true" className="size-4" />
+							{t.performance.title}
 						</Link>
 					</div>
 					<Button

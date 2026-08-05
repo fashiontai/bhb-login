@@ -138,6 +138,9 @@ importers:
       '@aws-sdk/client-sns':
         specifier: ^3.1095.0
         version: 3.1095.0
+      '@aws-sdk/client-sqs':
+        specifier: ^3.1095.0
+        version: 3.1096.0
       '@bhb-login/api':
         specifier: workspace:*
         version: link:../../packages/api
@@ -150,6 +153,9 @@ importers:
       '@bhb-login/env':
         specifier: workspace:*
         version: link:../../packages/env
+      '@bhb-login/performance-sdk':
+        specifier: workspace:*
+        version: link:../../packages/performance-sdk
       '@hono/node-server':
         specifier: ^1.14.4
         version: 1.19.14(hono@4.12.27)
@@ -196,6 +202,9 @@ importers:
       '@bhb-login/env':
         specifier: workspace:*
         version: link:../../packages/env
+      '@bhb-login/performance-sdk':
+        specifier: workspace:*
+        version: link:../../packages/performance-sdk
       '@bhb-login/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -386,6 +395,19 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.0
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+
+  packages/performance-sdk:
+    dependencies:
+      zod:
+        specifier: 'catalog:'
+        version: 4.4.3
+    devDependencies:
+      '@bhb-login/config':
+        specifier: workspace:*
+        version: link:../config
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

@@ -16,6 +16,7 @@ export const env = createEnv({
 		GO_PROFILE_SERVICE_NAMESPACE: z.string().min(1).default("bhb-login.local"),
 		GO_INTERNAL_SERVICE_TOKEN: z.string().min(32),
 		GITHUB_PROFILE_EVENTS_TOPIC_ARN: z.string().min(1).optional(),
+		PERFORMANCE_EVENTS_QUEUE_URL: z.url().optional(),
 		NODE_ENV: z
 			.enum(["development", "production", "test"])
 			.default("development"),

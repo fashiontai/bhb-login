@@ -1,3 +1,4 @@
+import { createPerformanceClient } from "@bhb-login/performance-sdk";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import ReactDOM from "react-dom/client";
@@ -18,6 +19,13 @@ const router = createRouter({
 		);
 	},
 });
+
+const performanceClient = createPerformanceClient({
+	endpoint: `${import.meta.env.VITE_SERVER_URL}/api/telemetry/events`,
+	release: import.meta.env.VITE_RELEASE,
+	sampleRate: Number(import.meta.env.VITE_PERFORMANCE_SAMPLE_RATE ?? "0.1"),
+});
+performanceClient.start();
 
 declare module "@tanstack/react-router" {
 	interface Register {

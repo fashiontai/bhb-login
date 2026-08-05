@@ -56,6 +56,12 @@ Parameters:
     MinValue: 1
     MaxValue: 10
     Description: Desired number of production Go profile tasks.
+  PerformanceProcessorDesiredCount:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 2
+    Description: Desired number of private performance processing worker tasks.
   GoProfileCertificateArn:
     Type: String
     AllowedPattern: "^arn:aws:acm:[a-z0-9-]+:[0-9]{12}:certificate/[A-Za-z0-9-]+$"
@@ -436,6 +442,30 @@ Resources:
       RawMessageDelivery: true
       TopicArn: !Ref GithubProfileEventsTopic
 
+  PerformanceEventsDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${AWS::StackName}-performance-events-dlq"
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-performance-events-dlq"
+
+  PerformanceEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${AWS::StackName}-performance-events"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PerformanceEventsDlq.Arn
+        maxReceiveCount: 3
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 180
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-performance-events"
+
   LambdaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -784,6 +814,17 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${AWS::StackName}-go-task-role"
+      Policies:
+        - PolicyName: ConsumePerformanceEvents
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ReceiveMessage
+                Resource: !GetAtt PerformanceEventsQueue.Arn
 
   GoProfileTaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -885,6 +926,100 @@ Resources:
         - Key: Name
           Value: !Sub "${AWS::StackName}-go-profile"
 
+  PerformanceProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: ShouldDeployGoProfileService
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub "/ecs/${AWS::StackName}/performance-processor"
+      RetentionInDays: 14
+
+  PerformanceProcessorTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Condition: ShouldDeployGoProfileService
+    Properties:
+      ContainerDefinitions:
+        - Command:
+            - processor
+          Essential: true
+          Environment:
+            - Name: DATABASE_HOST
+              Value: !GetAtt DatabaseCluster.Endpoint.Address
+            - Name: DATABASE_NAME
+              Value: !Ref DatabaseName
+            - Name: DATABASE_PORT
+              Value: !GetAtt DatabaseCluster.Endpoint.Port
+            - Name: DATABASE_SCHEMA
+              Value: public
+            - Name: DATABASE_SSL_MODE
+              Value: require
+            - Name: PERFORMANCE_EVENTS_QUEUE_URL
+              Value: !Ref PerformanceEventsQueue
+          Image: !Ref GoProfileImageUri
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref PerformanceProcessorLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: performance
+          Name: performance-processor
+          Secrets:
+            - Name: DATABASE_PASSWORD
+              ValueFrom: !Sub "${DatabaseCredentialsSecret}:password::"
+            - Name: DATABASE_USERNAME
+              ValueFrom: !Sub "${DatabaseCredentialsSecret}:username::"
+            - Name: GO_INTERNAL_SERVICE_TOKEN
+              ValueFrom: !Ref GoInternalServiceSecret
+      Cpu: "256"
+      ExecutionRoleArn: !GetAtt GoProfileTaskExecutionRole.Arn
+      Family: !Sub "${AWS::StackName}-performance-processor"
+      Memory: "512"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      TaskRoleArn: !GetAtt GoProfileTaskRole.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-performance-processor"
+
+  PerformanceProcessorService:
+    Type: AWS::ECS::Service
+    Condition: ShouldDeployGoProfileService
+    DependsOn:
+      - PrivateDefaultRoute
+      - PrivateSubnetARouteTableAssociation
+      - PrivateSubnetBRouteTableAssociation
+    Properties:
+      Cluster: !Ref GoProfileCluster
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MaximumPercent: 200
+        MinimumHealthyPercent: 0
+      DesiredCount: !Ref PerformanceProcessorDesiredCount
+      EnableECSManagedTags: true
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref GoProfileSecurityGroup
+          Subnets:
+            - !Ref PrivateSubnetA
+            - !Ref PrivateSubnetB
+      PlatformVersion: "1.4.0"
+      PropagateTags: SERVICE
+      ServiceName: !Sub "${AWS::StackName}-performance-processor"
+      TaskDefinition: !Ref PerformanceProcessorTaskDefinition
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-performance-processor"
+
   ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -907,6 +1042,10 @@ Resources:
             - Effect: Allow
               Action: sns:Publish
               Resource: !Ref GithubProfileEventsTopic
+        - Statement:
+            - Effect: Allow
+              Action: sqs:SendMessage
+              Resource: !GetAtt PerformanceEventsQueue.Arn
       VpcConfig:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroup
@@ -930,6 +1069,7 @@ Resources:
           GO_PROFILE_SERVICE_NAMESPACE: !Sub "${AWS::StackName}.local"
           GO_PROFILE_SERVICE_URL: !Sub "http://go-profile.${AWS::StackName}.local:8080"
           GITHUB_PROFILE_EVENTS_TOPIC_ARN: !Ref GithubProfileEventsTopic
+          PERFORMANCE_EVENTS_QUEUE_URL: !Ref PerformanceEventsQueue
       Events:
         Root:
           Type: HttpApi
@@ -1245,6 +1385,10 @@ Outputs:
     Condition: ShouldDeployGoProfileService
     Description: ECS service name for the Go profile application.
     Value: !GetAtt GoProfileService.Name
+  PerformanceProcessorServiceName:
+    Condition: ShouldDeployGoProfileService
+    Description: ECS service name for the private performance processing worker.
+    Value: !GetAtt PerformanceProcessorService.Name
   GithubProfileEventsTopicArn:
     Description: SNS topic ARN for GitHub profile saved events.
     Value: !Ref GithubProfileEventsTopic
@@ -1260,6 +1404,18 @@ Outputs:
   GithubProfileEventsDlqArn:
     Description: SQS dead-letter queue ARN for GitHub profile saved events.
     Value: !GetAtt GithubProfileEventsDlq.Arn
+  PerformanceEventsQueueUrl:
+    Description: SQS queue URL for raw performance events.
+    Value: !Ref PerformanceEventsQueue
+  PerformanceEventsQueueArn:
+    Description: SQS queue ARN for raw performance events.
+    Value: !GetAtt PerformanceEventsQueue.Arn
+  PerformanceEventsDlqUrl:
+    Description: SQS dead-letter queue URL for raw performance events.
+    Value: !Ref PerformanceEventsDlq
+  PerformanceEventsDlqArn:
+    Description: SQS dead-letter queue ARN for raw performance events.
+    Value: !GetAtt PerformanceEventsDlq.Arn
   HealthCanaryName:
     Condition: ShouldDeployHealthCanary
     Description: CloudWatch Synthetics canary checking the Node and Go health endpoints.

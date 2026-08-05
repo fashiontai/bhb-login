@@ -1,9 +1,11 @@
+import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { createContext } from "@bhb-login/api/context";
 import { appRouter } from "@bhb-login/api/routers/index";
 import { auth } from "@bhb-login/auth";
 import db from "@bhb-login/db";
 import { runDatabaseMigrations } from "@bhb-login/db/migrations";
 import { env, isAllowedWebOrigin } from "@bhb-login/env/server";
+import { performanceBatchSchema } from "@bhb-login/performance-sdk/contract";
 import { trpcServer } from "@hono/trpc-server";
 import { Hono } from "hono";
 import { handle } from "hono/aws-lambda";
@@ -36,7 +38,12 @@ const introductionRequestSchema = z.object({
 		.regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/),
 });
 
+const performanceSummaryQuerySchema = z.object({
+	days: z.coerce.number().int().min(1).max(30).default(7),
+});
+
 const previewIdSchema = z.string().regex(/^pr-[a-z0-9-]+-[a-f0-9]{8}$/);
+const performanceEventsSqs = new SQSClient({});
 
 const resolveGoProfileServiceUrl = (previewId: string | undefined) => {
 	const parsedPreviewId = previewIdSchema.safeParse(previewId);
@@ -221,6 +228,7 @@ app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
 app.use("/api/github/*", requireAuthentication);
 app.use("/api/introductions/*", requireAuthentication);
+app.use("/api/performance/*", requireAuthentication);
 
 app.use(
 	"/trpc/*",
@@ -240,6 +248,152 @@ app.get("/api/hello", (c) =>
 		timestamp: new Date().toISOString(),
 	})
 );
+
+app.post("/api/telemetry/events", async (c) => {
+	const contentLength = Number(c.req.header("Content-Length") ?? 0);
+	if (contentLength > 128_000) {
+		return c.json(
+			{
+				error: "PAYLOAD_TOO_LARGE",
+				message: "Performance payload is too large.",
+			},
+			413
+		);
+	}
+
+	let payload: unknown;
+	try {
+		payload = await c.req.json();
+	} catch {
+		return c.json(
+			{ error: "INVALID_JSON", message: "Request body must be valid JSON." },
+			400
+		);
+	}
+
+	const parsedPayload = performanceBatchSchema.safeParse(payload);
+	if (!parsedPayload.success) {
+		return c.json(
+			{
+				error: "INVALID_PERFORMANCE_EVENTS",
+				message: "Performance events are invalid.",
+			},
+			400
+		);
+	}
+
+	const requestId = crypto.randomUUID();
+	const receivedAt = new Date().toISOString();
+	const message = {
+		events: parsedPayload.data.events,
+		receivedAt,
+		requestId,
+		schemaVersion: 1,
+	};
+
+	console.info(
+		JSON.stringify({
+			event: "performance.events.received",
+			eventCount: message.events.length,
+			receivedAt,
+			requestId,
+		})
+	);
+
+	if (env.PERFORMANCE_EVENTS_QUEUE_URL) {
+		try {
+			await performanceEventsSqs.send(
+				new SendMessageCommand({
+					MessageBody: JSON.stringify(message),
+					QueueUrl: env.PERFORMANCE_EVENTS_QUEUE_URL,
+				})
+			);
+		} catch {
+			return c.json(
+				{
+					error: "PERFORMANCE_QUEUE_UNAVAILABLE",
+					message: "Performance events could not be queued.",
+				},
+				503
+			);
+		}
+	}
+
+	return c.json({
+		accepted: message.events.length,
+		queued: Boolean(env.PERFORMANCE_EVENTS_QUEUE_URL),
+		requestId,
+	});
+});
+
+app.get("/api/performance/summary", async (c) => {
+	const parsedQuery = performanceSummaryQuerySchema.safeParse(c.req.query());
+	if (!parsedQuery.success) {
+		return c.json(
+			{ error: "INVALID_DAYS", message: "Days must be between 1 and 30." },
+			400
+		);
+	}
+
+	const since = new Date();
+	since.setDate(since.getDate() - parsedQuery.data.days);
+
+	try {
+		const where = { occurredAt: { gte: since } };
+		const [aggregate, eventCounts, routeCounts] = await Promise.all([
+			db.performanceEvent.aggregate({
+				_avg: {
+					cls: true,
+					durationMs: true,
+					fcpMs: true,
+					inpMs: true,
+					lcpMs: true,
+				},
+				_count: { _all: true },
+				where,
+			}),
+			db.performanceEvent.groupBy({
+				_count: { _all: true },
+				by: ["eventType"],
+				where,
+			}),
+			db.performanceEvent.groupBy({
+				_count: { _all: true },
+				by: ["route"],
+				where,
+			}),
+		]);
+
+		return c.json({
+			averages: {
+				cls: aggregate._avg.cls,
+				durationMs: aggregate._avg.durationMs,
+				fcpMs: aggregate._avg.fcpMs,
+				inpMs: aggregate._avg.inpMs,
+				lcpMs: aggregate._avg.lcpMs,
+			},
+			days: parsedQuery.data.days,
+			generatedAt: new Date().toISOString(),
+			totalEvents: aggregate._count._all,
+			byEventType: eventCounts.map((item) => ({
+				count: item._count._all,
+				eventType: item.eventType,
+			})),
+			topRoutes: routeCounts
+				.sort((left, right) => right._count._all - left._count._all)
+				.slice(0, 10)
+				.map((item) => ({ count: item._count._all, route: item.route })),
+		});
+	} catch {
+		return c.json(
+			{
+				error: "PERFORMANCE_SUMMARY_FAILED",
+				message: "Failed to load performance summary.",
+			},
+			500
+		);
+	}
+});
 
 app.post("/api/introductions/generate", async (c) => {
 	let payload: unknown;

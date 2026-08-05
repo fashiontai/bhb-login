@@ -1,0 +1,24 @@
+{
+  "name": "@bhb-login/performance-sdk",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/client.ts"
+    },
+    "./contract": {
+      "default": "./src/contract.ts"
+    }
+  },
+  "scripts": {
+    "check-types": "tsc -b"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@bhb-login/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

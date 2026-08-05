@@ -102,6 +102,24 @@ export interface AppTranslations {
 		usernamePlaceholder: string;
 		viewProfile: string;
 	};
+	performance: {
+		averageDuration: string;
+		cls: string;
+		eventBreakdown: string;
+		events: string;
+		fcp: string;
+		generatedAt: string;
+		inp: string;
+		lcp: string;
+		loadFailed: string;
+		loading: string;
+		noData: string;
+		refresh: string;
+		rangeLabel: string;
+		title: string;
+		topRoutes: string;
+		totalEvents: string;
+	};
 	samDemo: {
 		apiCardTitle: string;
 		apiLabel: string;
@@ -252,6 +270,24 @@ const translations = {
 			usernameLabel: "GitHub 用户名",
 			usernamePlaceholder: "例如：fashiontai",
 			viewProfile: "查看 GitHub 主页",
+		},
+		performance: {
+			averageDuration: "平均请求耗时",
+			cls: "CLS",
+			eventBreakdown: "事件类型",
+			events: "事件",
+			fcp: "FCP",
+			generatedAt: "生成时间",
+			inp: "INP",
+			lcp: "LCP",
+			loadFailed: "加载性能数据失败",
+			loading: "加载中...",
+			noData: "暂无性能数据",
+			refresh: "刷新数据",
+			rangeLabel: "统计范围",
+			title: "性能观测",
+			topRoutes: "访问最多的页面",
+			totalEvents: "事件总数",
 		},
 		header: {
 			createAccount: "创建账户",
@@ -407,6 +443,24 @@ const translations = {
 			usernameLabel: "GitHub Username",
 			usernamePlaceholder: "Example: fashiontai",
 			viewProfile: "View GitHub Profile",
+		},
+		performance: {
+			averageDuration: "Average Request Duration",
+			cls: "CLS",
+			eventBreakdown: "Event Types",
+			events: "Events",
+			fcp: "FCP",
+			generatedAt: "Generated At",
+			inp: "INP",
+			lcp: "LCP",
+			loadFailed: "Failed to load performance data",
+			loading: "Loading...",
+			noData: "No performance data yet",
+			refresh: "Refresh Data",
+			rangeLabel: "Time Range",
+			title: "Performance Observability",
+			topRoutes: "Top Routes",
+			totalEvents: "Total Events",
 		},
 		header: {
 			createAccount: "Create Account",

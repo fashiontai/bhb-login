@@ -11,10 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/fashiontai/bhb-login/apps/go-profile/internal/config"
 	"github.com/fashiontai/bhb-login/apps/go-profile/internal/github"
 	"github.com/fashiontai/bhb-login/apps/go-profile/internal/httpapi"
 	"github.com/fashiontai/bhb-login/apps/go-profile/internal/migrations"
+	"github.com/fashiontai/bhb-login/apps/go-profile/internal/performance"
 	"github.com/fashiontai/bhb-login/apps/go-profile/internal/store"
 )
 
@@ -42,9 +45,29 @@ func runCommand(command string) error {
 		return migrations.Run(context.Background(), appConfig.DatabaseURL, appConfig.DatabaseSchema)
 	case "drop-schema":
 		return migrations.DropSchema(context.Background(), appConfig.DatabaseURL, appConfig.DatabaseSchema)
+	case "processor":
+		return runProcessor(appConfig)
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
+}
+
+func runProcessor(appConfig config.Config) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	dataStore, err := store.New(ctx, appConfig.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer dataStore.Close()
+
+	awsConfig, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("load AWS configuration: %w", err)
+	}
+	processor := performance.NewProcessor(sqs.NewFromConfig(awsConfig), appConfig.PerformanceQueueURL, dataStore)
+	return processor.Run(ctx)
 }
 
 func run() error {
