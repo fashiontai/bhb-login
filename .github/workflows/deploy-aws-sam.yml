@@ -176,7 +176,6 @@ jobs:
           GO_PROFILE_PUBLIC_DOMAIN: ${{ vars.GO_PROFILE_PUBLIC_DOMAIN || 'go-api.fashiontai.online' }}
           ENABLE_HEALTH_CANARY: ${{ vars.ENABLE_HEALTH_CANARY || 'false' }}
           ENABLE_API_CANARY: ${{ vars.ENABLE_API_CANARY || 'false' }}
-          PERFORMANCE_PROCESSOR_DESIRED_COUNT: ${{ vars.PERFORMANCE_PROCESSOR_DESIRED_COUNT || '0' }}
           CURRENT_GO_IMAGE_URI: ${{ steps.current_runtime.outputs.image_uri }}
           FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://fashiontai.online' }}
         run: |
@@ -197,7 +196,7 @@ jobs:
             "GoProfilePublicDomainName=${GO_PROFILE_PUBLIC_DOMAIN}"
             "EnableHealthCanary=${ENABLE_HEALTH_CANARY}"
             "EnableApiCanary=${ENABLE_API_CANARY}"
-            "PerformanceProcessorDesiredCount=${PERFORMANCE_PROCESSOR_DESIRED_COUNT}"
+            "PerformanceProcessorDesiredCount=0"
             "NodeEnv=production"
           )
           if [ -n "${CURRENT_GO_IMAGE_URI}" ]; then
