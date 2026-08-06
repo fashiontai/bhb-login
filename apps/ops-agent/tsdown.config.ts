@@ -6,6 +6,7 @@ export default defineConfig({
 		"src/observer.ts",
 		"src/triage.ts",
 		"src/release.ts",
+		"src/webhook.ts",
 		"src/mcp-client.ts",
 	],
 	format: ["esm"],

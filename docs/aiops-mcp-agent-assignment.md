@@ -39,6 +39,8 @@ flowchart LR
   Q3 --> RELEASE[Release Agent Lambda]
   RELEASE --> SNS4[SNS Notifications]
   SNS4 --> EMAIL[Email / 人工确认]
+  SNS4 --> WEBHOOK[Webhook Notifier Lambda]
+  WEBHOOK --> APP[App 群机器人]
 ```
 
 边界说明：
@@ -69,10 +71,9 @@ flowchart LR
 ```bash
 export AWS_PROFILE=bhb-new
 export AWS_REGION=ap-northeast-1
-set -a
-source .env
-set +a
 ```
+
+本地 stdio 入口会自动读取项目根目录 `.env`；终端中显式设置的环境变量优先级更高。
 
 ### 4.2 启动 stdio MCP Server
 
@@ -157,6 +158,8 @@ aws logs tail /aws/lambda/bhb-login-ops-triage \
 - 严重级别和建议动作
 
 如果严重级别是 `DEGRADED` 或 `CRITICAL`，Release Agent 会经 SNS 向已确认的邮箱发送人工确认通知。
+
+需要把同一条通知发送到飞书、钉钉、企业微信、Slack 或自建 App 时，按 [AIOps App Webhook 通知](./aiops-app-webhook-notifications.md) 配置可选 Webhook 通道。Webhook URL 只存放在 SSM `SecureString` 中。
 
 ## 7. 完成标准
 

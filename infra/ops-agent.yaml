@@ -51,9 +51,26 @@ Parameters:
     Type: String
     Default: ""
     Description: Optional email endpoint for degraded or critical operations notifications.
+  WebhookParameterName:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^/[A-Za-z0-9_./-]+$"
+    ConstraintDescription: Must be empty or an absolute SSM parameter name beginning with /.
+    Description: Optional SSM SecureString parameter containing the app webhook URL or provider/url JSON.
+  WebhookProvider:
+    Type: String
+    Default: generic
+    AllowedValues:
+      - dingtalk
+      - feishu
+      - generic
+      - slack
+      - wecom
+    Description: Message format used when the SSM parameter contains a raw URL.
 
 Conditions:
   HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
+  HasNotificationWebhook: !Not [!Equals [!Ref WebhookParameterName, ""]]
 
 Resources:
   OpsEventsTopic:
@@ -164,6 +181,17 @@ Resources:
         - Key: Name
           Value: !Sub "${ApplicationStackName}-ops-release"
 
+  OpsWebhookDlq:
+    Condition: HasNotificationWebhook
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${ApplicationStackName}-ops-webhook-dlq"
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ApplicationStackName}-ops-webhook-dlq"
+
   OpsEventsQueuePolicy:
     Type: AWS::SQS::QueuePolicy
     Properties:
@@ -215,6 +243,24 @@ Resources:
       Queues:
         - !Ref OpsReleaseQueue
 
+  OpsWebhookDlqPolicy:
+    Condition: HasNotificationWebhook
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt OpsWebhookDlq.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref OpsNotificationsTopic
+      Queues:
+        - !Ref OpsWebhookDlq
+
   OpsEventsSubscription:
     Type: AWS::SNS::Subscription
     Properties:
@@ -245,6 +291,18 @@ Resources:
     Properties:
       Endpoint: !Ref NotificationEmail
       Protocol: email
+      TopicArn: !Ref OpsNotificationsTopic
+
+  OpsWebhookSubscription:
+    Condition: HasNotificationWebhook
+    Type: AWS::SNS::Subscription
+    DependsOn:
+      - WebhookNotifierInvokePermission
+    Properties:
+      Endpoint: !GetAtt WebhookNotifierFunction.Arn
+      Protocol: lambda
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OpsWebhookDlq.Arn
       TopicArn: !Ref OpsNotificationsTopic
 
   OpsAlarmStateChangeRule:
@@ -448,6 +506,55 @@ Resources:
             MaximumBatchingWindowInSeconds: 10
             Queue: !GetAtt OpsReleaseQueue.Arn
 
+  WebhookNotifierLogGroup:
+    Condition: HasNotificationWebhook
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ApplicationStackName}-ops-webhook"
+      RetentionInDays: !Ref LogRetentionInDays
+
+  WebhookNotifierFunction:
+    Condition: HasNotificationWebhook
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ApplicationStackName}-ops-webhook"
+      CodeUri: ../apps/ops-agent/dist/
+      Handler: webhook.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - arm64
+      MemorySize: 128
+      Timeout: 10
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt OpsWebhookDlq.Arn
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${WebhookParameterName}"
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource: !GetAtt OpsWebhookDlq.Arn
+      Environment:
+        Variables:
+          OPS_WEBHOOK_PARAMETER_NAME: !Ref WebhookParameterName
+          OPS_WEBHOOK_PROVIDER: !Ref WebhookProvider
+
+  WebhookNotifierInvokePermission:
+    Condition: HasNotificationWebhook
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WebhookNotifierFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref OpsNotificationsTopic
+
   OpsMcpServerLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Delete
@@ -542,6 +649,10 @@ Outputs:
   ReleaseAgentFunctionName:
     Description: Release and approval gate function name.
     Value: !Ref ReleaseAgentFunction
+  WebhookNotifierFunctionName:
+    Condition: HasNotificationWebhook
+    Description: SNS-to-app webhook notification function name.
+    Value: !Ref WebhookNotifierFunction
   OpsMcpServerFunctionName:
     Description: Read-only operations MCP Server Lambda function name.
     Value: !Ref OpsMcpServerFunction
@@ -578,3 +689,7 @@ Outputs:
   OpsReleaseDlqUrl:
     Description: Release and approval gate dead-letter queue URL.
     Value: !Ref OpsReleaseDlq
+  OpsWebhookDlqUrl:
+    Condition: HasNotificationWebhook
+    Description: Failed app webhook notification dead-letter queue URL.
+    Value: !Ref OpsWebhookDlq

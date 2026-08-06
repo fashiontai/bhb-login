@@ -8,6 +8,8 @@ name: Deploy Ops Agents
 # - OPS_STACK_NAME
 # - SAM_STACK_NAME
 # - OPS_NOTIFICATION_EMAIL
+# - OPS_WEBHOOK_PARAMETER_NAME
+# - OPS_WEBHOOK_PROVIDER
 
 on:
   push:
@@ -34,6 +36,8 @@ env:
   MAIN_STACK_NAME: ${{ vars.SAM_STACK_NAME || 'bhb-login' }}
   OPS_STACK_NAME: ${{ vars.OPS_STACK_NAME || 'bhb-login-ops' }}
   NOTIFICATION_EMAIL: ${{ vars.OPS_NOTIFICATION_EMAIL || '' }}
+  WEBHOOK_PARAMETER_NAME: ${{ vars.OPS_WEBHOOK_PARAMETER_NAME || '' }}
+  WEBHOOK_PROVIDER: ${{ vars.OPS_WEBHOOK_PROVIDER || 'generic' }}
   NODE_VERSION: "24"
   PNPM_VERSION: "11.10.0"
 
@@ -147,7 +151,9 @@ jobs:
               "DatabaseClusterIdentifier=${DATABASE_CLUSTER_IDENTIFIER}" \
               "GithubEventsQueueUrl=${GITHUB_EVENTS_QUEUE_URL}" \
               "GithubEventsDlqUrl=${GITHUB_EVENTS_DLQ_URL}" \
-              "NotificationEmail=${NOTIFICATION_EMAIL}"
+              "NotificationEmail=${NOTIFICATION_EMAIL}" \
+              "WebhookParameterName=${WEBHOOK_PARAMETER_NAME}" \
+              "WebhookProvider=${WEBHOOK_PROVIDER}"
 
       - name: Print Ops Agents outputs
         run: |

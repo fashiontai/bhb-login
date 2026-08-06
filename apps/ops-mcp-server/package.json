@@ -17,6 +17,7 @@
     "@aws-sdk/client-rds": "^3.1095.0",
     "@aws-sdk/client-sqs": "^3.1095.0",
     "@modelcontextprotocol/server": "2.0.0",
+    "dotenv": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
