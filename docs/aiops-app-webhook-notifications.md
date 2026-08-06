@@ -26,8 +26,9 @@ flowchart LR
   RELEASE[Release Agent Lambda] --> TOPIC[SNS Ops Notifications]
   TOPIC --> EMAIL[现有邮件订阅]
   TOPIC -->|P0 过滤器| WEBHOOK[Webhook Notifier Lambda]
-  TOPIC -->|P1/P2 过滤器| BUFFER[SQS 2 分钟聚合缓冲]
-  BUFFER --> WEBHOOK
+  TOPIC -->|P1/P2 过滤器| BUFFER[SQS 聚合缓冲]
+  SCHEDULE[EventBridge 每 2 分钟] --> WEBHOOK
+  WEBHOOK -->|主动排空| BUFFER
   WEBHOOK --> APP[企业微信 / 飞书 / 钉钉 / Slack / 自建 App]
   TOPIC -. 投递失败 .-> DLQ[SQS Webhook DLQ]
   BUFFER -. 重试失败 .-> DLQ
@@ -41,7 +42,7 @@ flowchart LR
 - Webhook Lambda 不加入业务 VPC，只向 HTTPS 地址发请求。
 - Lambda 日志不会打印 Webhook URL。
 - SNS 无法调用 Lambda，或 Lambda 重试后仍无法把消息发送给 App，都会进入独立 DLQ，保留 14 天。
-- P1/P2 使用 SQS 的 Lambda 批处理窗口做低成本聚合；同一批次只调用一次 App Webhook。
+- P1/P2 先保存在 SQS；EventBridge 每 2 分钟触发一次 Lambda 主动排空队列，因此每轮只调用一次 App Webhook。
 - 聚合消息包含最高优先级、总数、P1/P2 数量、去重摘要和去重后的处置建议。
 
 ## 3. 创建机器人 Webhook
@@ -118,7 +119,7 @@ aws cloudformation describe-stacks \
 
 1. 原有邮箱继续收到通知。
 2. P0 立即到达 App，日志中的 `mode` 为 `immediate`。
-3. 2 分钟内产生的 P1/P2 合并为一条 App 消息，日志中的 `mode` 为 `aggregated`。
+3. 同一轮定时排空前产生的 P1/P2 合并为一条 App 消息，最长等待约 2 分钟，日志中的 `mode` 为 `aggregated`。
 4. CloudWatch 日志出现 `ops.webhook.delivered`。
 
 查询日志：

@@ -1,10 +1,17 @@
+import {
+	DeleteMessageBatchCommand,
+	ReceiveMessageCommand,
+	SQSClient,
+} from "@aws-sdk/client-sqs";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
-import type { SNSEvent, SQSBatchResponse, SQSEvent } from "aws-lambda";
+import type { ScheduledEvent, SNSEvent } from "aws-lambda";
 
 const WEBHOOK_TIMEOUT_MS = 8000;
 const RESPONSE_PREVIEW_LENGTH = 300;
 const MAX_WEBHOOK_TEXT_LENGTH = 3500;
 const AGGREGATION_WINDOW_SECONDS = 120;
+const MAX_BUFFERED_NOTIFICATIONS = 100;
+const SQS_RECEIVE_BATCH_SIZE = 10;
 
 export type OpsPriority = "P0" | "P1" | "P2";
 
@@ -46,11 +53,22 @@ export interface WebhookDestination {
 }
 
 interface WebhookHandlerDependencies {
+	deleteBufferedNotifications: (
+		notifications: QueuedNotification[]
+	) => Promise<void>;
 	getDestination: () => Promise<WebhookDestination>;
+	receiveBufferedNotifications: () => Promise<QueuedNotification[]>;
 	request: typeof fetch;
 }
 
+interface QueuedNotification {
+	messageId: string;
+	notification: OpsNotification;
+	receiptHandle: string;
+}
+
 const ssm = new SSMClient({});
+const sqs = new SQSClient({});
 let destinationPromise: Promise<WebhookDestination> | undefined;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -133,6 +151,14 @@ const loadWebhookDestination = async (): Promise<WebhookDestination> => {
 const getWebhookDestination = (): Promise<WebhookDestination> => {
 	destinationPromise ??= loadWebhookDestination();
 	return destinationPromise;
+};
+
+const getWebhookBufferQueueUrl = (): string => {
+	const queueUrl = process.env.OPS_WEBHOOK_BUFFER_QUEUE_URL?.trim();
+	if (!queueUrl) {
+		throw new Error("OPS_WEBHOOK_BUFFER_QUEUE_URL is required");
+	}
+	return queueUrl;
 };
 
 export const parseOpsNotification = (value: string): OpsNotification => {
@@ -230,6 +256,65 @@ export const mergeNotifications = (
 	};
 };
 
+const receiveBufferedNotifications = async (): Promise<
+	QueuedNotification[]
+> => {
+	const queueUrl = getWebhookBufferQueueUrl();
+	const notifications: QueuedNotification[] = [];
+	while (notifications.length < MAX_BUFFERED_NOTIFICATIONS) {
+		const response = await sqs.send(
+			new ReceiveMessageCommand({
+				MaxNumberOfMessages: SQS_RECEIVE_BATCH_SIZE,
+				QueueUrl: queueUrl,
+				VisibilityTimeout: 240,
+				WaitTimeSeconds: 1,
+			})
+		);
+		const messages = response.Messages ?? [];
+		if (messages.length === 0) {
+			break;
+		}
+		for (const message of messages) {
+			if (!(message.Body && message.MessageId && message.ReceiptHandle)) {
+				throw new Error("Webhook buffer queue returned an incomplete message");
+			}
+			notifications.push({
+				messageId: message.MessageId,
+				notification: parseOpsNotification(message.Body),
+				receiptHandle: message.ReceiptHandle,
+			});
+		}
+	}
+	return notifications;
+};
+
+const deleteBufferedNotifications = async (
+	notifications: QueuedNotification[]
+): Promise<void> => {
+	const queueUrl = getWebhookBufferQueueUrl();
+	for (
+		let offset = 0;
+		offset < notifications.length;
+		offset += SQS_RECEIVE_BATCH_SIZE
+	) {
+		const batch = notifications.slice(offset, offset + SQS_RECEIVE_BATCH_SIZE);
+		const response = await sqs.send(
+			new DeleteMessageBatchCommand({
+				Entries: batch.map((message, index) => ({
+					Id: `message-${offset + index}`,
+					ReceiptHandle: message.receiptHandle,
+				})),
+				QueueUrl: queueUrl,
+			})
+		);
+		if (response.Failed && response.Failed.length > 0) {
+			throw new Error(
+				`Failed to delete ${response.Failed.length} webhook buffer messages`
+			);
+		}
+	}
+};
+
 const truncateText = (value: string): string =>
 	value.length <= MAX_WEBHOOK_TEXT_LENGTH
 		? value
@@ -322,15 +407,18 @@ const sendWebhook = async (
 export const createWebhookHandler = (
 	overrides: Partial<WebhookHandlerDependencies> = {}
 ) => {
+	const deleteNotifications =
+		overrides.deleteBufferedNotifications ?? deleteBufferedNotifications;
 	const getDestination = overrides.getDestination ?? getWebhookDestination;
+	const receiveNotifications =
+		overrides.receiveBufferedNotifications ?? receiveBufferedNotifications;
 	const request = overrides.request ?? fetch;
 	return async (
-		event: SNSEvent | SQSEvent
-	): Promise<undefined | SQSBatchResponse> => {
-		const destination = await getDestination();
-		const isSnsEvent = event.Records.every((record) => "Sns" in record);
-		if (isSnsEvent) {
-			for (const record of (event as SNSEvent).Records) {
+		event: ScheduledEvent<Record<string, never>> | SNSEvent
+	): Promise<void> => {
+		if ("Records" in event) {
+			const destination = await getDestination();
+			for (const record of event.Records) {
 				const notification = parseOpsNotification(record.Sns.Message);
 				await sendWebhook(destination, notification, request);
 				console.info(
@@ -347,36 +435,28 @@ export const createWebhookHandler = (
 			return;
 		}
 
-		const sqsRecords = (event as SQSEvent).Records;
-		try {
-			const notifications = sqsRecords.map((record) =>
-				parseOpsNotification(record.body)
-			);
-			const notification = mergeNotifications(notifications);
-			await sendWebhook(destination, notification, request);
-			console.info(
-				JSON.stringify({
-					messageCount: sqsRecords.length,
-					messageIds: sqsRecords.map((record) => record.messageId),
-					mode: "aggregated",
-					priority: notification.priority,
-					provider: destination.provider,
-					severity: notification.severity,
-					type: "ops.webhook.delivered",
-				})
-			);
-			return { batchItemFailures: [] };
-		} catch (error) {
-			console.error("Webhook Notifier failed to process aggregate", {
-				error: error instanceof Error ? error.message : String(error),
-				messageIds: sqsRecords.map((record) => record.messageId),
-			});
-			return {
-				batchItemFailures: sqsRecords.map((record) => ({
-					itemIdentifier: record.messageId,
-				})),
-			};
+		const queuedNotifications = await receiveNotifications();
+		if (queuedNotifications.length === 0) {
+			console.info(JSON.stringify({ type: "ops.webhook.digest.empty" }));
+			return;
 		}
+		const destination = await getDestination();
+		const notification = mergeNotifications(
+			queuedNotifications.map((message) => message.notification)
+		);
+		await sendWebhook(destination, notification, request);
+		await deleteNotifications(queuedNotifications);
+		console.info(
+			JSON.stringify({
+				messageCount: queuedNotifications.length,
+				messageIds: queuedNotifications.map((message) => message.messageId),
+				mode: "aggregated",
+				priority: notification.priority,
+				provider: destination.provider,
+				severity: notification.severity,
+				type: "ops.webhook.delivered",
+			})
+		);
 	};
 };
 

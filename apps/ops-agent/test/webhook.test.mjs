@@ -131,42 +131,78 @@ test("merges P1 and P2 notifications into one digest", () => {
 	assert.equal(result.findings.length, 1);
 });
 
-test("delivers one webhook request for an SQS notification batch", async () => {
+test("delivers one webhook request for a scheduled queue drain", async () => {
+	const deletedMessageIds = [];
 	const requestBodies = [];
 	const handler = createWebhookHandler({
+		deleteBufferedNotifications: (messages) => {
+			deletedMessageIds.push(...messages.map((message) => message.messageId));
+			return Promise.resolve();
+		},
 		getDestination: async () => ({
 			provider: "wecom",
 			url: "https://example.com/webhook",
 		}),
+		receiveBufferedNotifications: async () => [
+			{
+				messageId: "message-p1",
+				notification: {
+					...notification,
+					priority: "P1",
+					severity: "DEGRADED",
+				},
+				receiptHandle: "receipt-p1",
+			},
+			{
+				messageId: "message-p2",
+				notification: {
+					...notification,
+					priority: "P2",
+					severity: "UNKNOWN",
+				},
+				receiptHandle: "receipt-p2",
+			},
+		],
 		request: (_url, init) => {
 			requestBodies.push(init?.body?.toString() ?? "");
 			return Promise.resolve(new Response(null, { status: 204 }));
 		},
 	});
-	const result = await handler({
-		Records: [
+	await handler({ source: "aws.events" });
+
+	assert.equal(requestBodies.length, 1);
+	assert.deepEqual(deletedMessageIds, ["message-p1", "message-p2"]);
+	assert.match(JSON.parse(requestBodies[0]).markdown.content, twoAlertsPattern);
+});
+
+test("keeps buffered notifications when webhook delivery fails", async () => {
+	let deleteCalled = false;
+	const handler = createWebhookHandler({
+		deleteBufferedNotifications: () => {
+			deleteCalled = true;
+			return Promise.resolve();
+		},
+		getDestination: async () => ({
+			provider: "wecom",
+			url: "https://example.com/webhook",
+		}),
+		receiveBufferedNotifications: async () => [
 			{
-				body: JSON.stringify({
+				messageId: "message-p1",
+				notification: {
 					...notification,
 					priority: "P1",
 					severity: "DEGRADED",
-				}),
-				messageId: "message-p1",
-			},
-			{
-				body: JSON.stringify({
-					...notification,
-					priority: "P2",
-					severity: "UNKNOWN",
-				}),
-				messageId: "message-p2",
+				},
+				receiptHandle: "receipt-p1",
 			},
 		],
+		request: () =>
+			Promise.resolve(new Response("temporary failure", { status: 503 })),
 	});
 
-	assert.equal(requestBodies.length, 1);
-	assert.deepEqual(result, { batchItemFailures: [] });
-	assert.match(JSON.parse(requestBodies[0]).markdown.content, twoAlertsPattern);
+	await assert.rejects(() => handler({ source: "aws.events" }));
+	assert.equal(deleteCalled, false);
 });
 
 test("rejects invalid notification messages", () => {

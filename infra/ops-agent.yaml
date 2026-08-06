@@ -600,17 +600,16 @@ Resources:
               Resource: !GetAtt OpsWebhookDlq.Arn
       Environment:
         Variables:
+          OPS_WEBHOOK_BUFFER_QUEUE_URL: !Ref OpsWebhookBufferQueue
           OPS_WEBHOOK_PARAMETER_NAME: !Ref WebhookParameterName
           OPS_WEBHOOK_PROVIDER: !Ref WebhookProvider
       Events:
         WebhookDigest:
-          Type: SQS
+          Type: Schedule
           Properties:
-            BatchSize: 100
-            FunctionResponseTypes:
-              - ReportBatchItemFailures
-            MaximumBatchingWindowInSeconds: 120
-            Queue: !GetAtt OpsWebhookBufferQueue.Arn
+            Description: Flush P1 and P2 app notifications as one digest every two minutes.
+            Enabled: true
+            Schedule: rate(2 minutes)
 
   WebhookNotifierInvokePermission:
     Condition: HasNotificationWebhook
