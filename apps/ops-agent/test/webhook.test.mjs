@@ -4,11 +4,13 @@ import test from "node:test";
 import {
 	buildWebhookPayload,
 	createWebhookHandler,
+	mergeNotifications,
 	parseOpsNotification,
 	parseWebhookDestination,
 } from "../dist/webhook.mjs";
 
 const criticalPattern = /CRITICAL/;
+const twoAlertsPattern = /共 2 条/;
 const invalidNotificationPattern =
 	/Webhook Notifier received an invalid notification/;
 const webhookHttpsPattern = /Webhook URL must use HTTPS/;
@@ -16,6 +18,7 @@ const webhookHttpsPattern = /Webhook URL must use HTTPS/;
 const notification = {
 	type: "ops.notification.created",
 	severity: "CRITICAL",
+	priority: "P0",
 	requiresApproval: true,
 	subject: "[bhb-login][CRITICAL] 运维告警需要确认",
 	summary: "Aurora PostgreSQL 不可用",
@@ -108,6 +111,62 @@ test("delivers an SNS notification to the configured webhook", async () => {
 	await handler(snsEvent);
 
 	assert.equal(JSON.parse(requestBody).event, "bhb-login.ops.notification");
+});
+
+test("merges P1 and P2 notifications into one digest", () => {
+	const result = mergeNotifications([
+		{ ...notification, priority: "P1", severity: "DEGRADED" },
+		{
+			...notification,
+			priority: "P2",
+			severity: "UNKNOWN",
+			summary: "无法确认 Aurora 当前状态",
+		},
+	]);
+
+	assert.equal(result.priority, "P1");
+	assert.equal(result.aggregation?.total, 2);
+	assert.equal(result.aggregation?.counts.P1, 1);
+	assert.equal(result.aggregation?.counts.P2, 1);
+	assert.equal(result.findings.length, 1);
+});
+
+test("delivers one webhook request for an SQS notification batch", async () => {
+	const requestBodies = [];
+	const handler = createWebhookHandler({
+		getDestination: async () => ({
+			provider: "wecom",
+			url: "https://example.com/webhook",
+		}),
+		request: (_url, init) => {
+			requestBodies.push(init?.body?.toString() ?? "");
+			return Promise.resolve(new Response(null, { status: 204 }));
+		},
+	});
+	const result = await handler({
+		Records: [
+			{
+				body: JSON.stringify({
+					...notification,
+					priority: "P1",
+					severity: "DEGRADED",
+				}),
+				messageId: "message-p1",
+			},
+			{
+				body: JSON.stringify({
+					...notification,
+					priority: "P2",
+					severity: "UNKNOWN",
+				}),
+				messageId: "message-p2",
+			},
+		],
+	});
+
+	assert.equal(requestBodies.length, 1);
+	assert.deepEqual(result, { batchItemFailures: [] });
+	assert.match(JSON.parse(requestBodies[0]).markdown.content, twoAlertsPattern);
 });
 
 test("rejects invalid notification messages", () => {

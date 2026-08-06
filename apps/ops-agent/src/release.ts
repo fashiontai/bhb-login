@@ -31,8 +31,11 @@ interface TriageResult {
 	type: "ops.triage.completed";
 }
 
+export type OpsPriority = "P0" | "P1" | "P2";
+
 export interface ReleaseNotification {
 	findings: TriageFinding[];
+	priority: OpsPriority;
 	recommendedActions: string[];
 	requiresApproval: true;
 	severity: Exclude<TriageResult["severity"], "HEALTHY">;
@@ -44,6 +47,15 @@ export interface ReleaseNotification {
 
 const sns = new SNSClient({});
 const notificationsTopicArn = process.env.OPS_NOTIFICATIONS_TOPIC_ARN ?? "";
+
+const priorityBySeverity: Record<
+	Exclude<TriageResult["severity"], "HEALTHY">,
+	OpsPriority
+> = {
+	CRITICAL: "P0",
+	DEGRADED: "P1",
+	UNKNOWN: "P2",
+};
 
 const isRecord = (value: unknown): value is RecordValue =>
 	typeof value === "object" && value !== null;
@@ -95,6 +107,7 @@ export const createReleaseNotification = (
 
 	return {
 		findings: result.findings,
+		priority: priorityBySeverity[result.severity],
 		recommendedActions: result.recommendedActions,
 		requiresApproval: true,
 		severity: result.severity,
@@ -115,6 +128,12 @@ const publishNotification = async (
 	await sns.send(
 		new PublishCommand({
 			Message: JSON.stringify(notification),
+			MessageAttributes: {
+				priority: {
+					DataType: "String",
+					StringValue: notification.priority,
+				},
+			},
 			Subject: notification.subject,
 			TopicArn: notificationsTopicArn,
 		})

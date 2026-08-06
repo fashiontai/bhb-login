@@ -45,8 +45,22 @@ test("creates an approval notification for a critical result", () => {
 
 	assert.equal(result?.type, "ops.notification.created");
 	assert.equal(result?.severity, "CRITICAL");
+	assert.equal(result?.priority, "P0");
 	assert.equal(result?.requiresApproval, true);
 	assert.match(result?.subject ?? "", criticalSubjectPattern);
+});
+
+test("maps degraded and unknown results to aggregated priorities", () => {
+	assert.equal(
+		createReleaseNotification({ ...criticalResult, severity: "DEGRADED" })
+			?.priority,
+		"P1"
+	);
+	assert.equal(
+		createReleaseNotification({ ...criticalResult, severity: "UNKNOWN" })
+			?.priority,
+		"P2"
+	);
 });
 
 test("parses a triage result from an SNS envelope", () => {

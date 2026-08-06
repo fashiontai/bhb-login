@@ -192,6 +192,21 @@ Resources:
         - Key: Name
           Value: !Sub "${ApplicationStackName}-ops-webhook-dlq"
 
+  OpsWebhookBufferQueue:
+    Condition: HasNotificationWebhook
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${ApplicationStackName}-ops-webhook-buffer"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OpsWebhookDlq.Arn
+        maxReceiveCount: 3
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 240
+      Tags:
+        - Key: Name
+          Value: !Sub "${ApplicationStackName}-ops-webhook-buffer"
+
   OpsEventsQueuePolicy:
     Type: AWS::SQS::QueuePolicy
     Properties:
@@ -261,6 +276,24 @@ Resources:
       Queues:
         - !Ref OpsWebhookDlq
 
+  OpsWebhookBufferQueuePolicy:
+    Condition: HasNotificationWebhook
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt OpsWebhookBufferQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref OpsNotificationsTopic
+      Queues:
+        - !Ref OpsWebhookBufferQueue
+
   OpsEventsSubscription:
     Type: AWS::SNS::Subscription
     Properties:
@@ -300,7 +333,29 @@ Resources:
       - WebhookNotifierInvokePermission
     Properties:
       Endpoint: !GetAtt WebhookNotifierFunction.Arn
+      FilterPolicy:
+        priority:
+          - P0
+      FilterPolicyScope: MessageAttributes
       Protocol: lambda
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OpsWebhookDlq.Arn
+      TopicArn: !Ref OpsNotificationsTopic
+
+  OpsWebhookDigestSubscription:
+    Condition: HasNotificationWebhook
+    Type: AWS::SNS::Subscription
+    DependsOn:
+      - OpsWebhookBufferQueuePolicy
+    Properties:
+      Endpoint: !GetAtt OpsWebhookBufferQueue.Arn
+      FilterPolicy:
+        priority:
+          - P1
+          - P2
+      FilterPolicyScope: MessageAttributes
+      Protocol: sqs
+      RawMessageDelivery: true
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt OpsWebhookDlq.Arn
       TopicArn: !Ref OpsNotificationsTopic
@@ -532,6 +587,8 @@ Resources:
         TargetArn: !GetAtt OpsWebhookDlq.Arn
       Policies:
         - AWSLambdaBasicExecutionRole
+        - SQSPollerPolicy:
+            QueueName: !GetAtt OpsWebhookBufferQueue.QueueName
         - Statement:
             - Effect: Allow
               Action:
@@ -545,6 +602,15 @@ Resources:
         Variables:
           OPS_WEBHOOK_PARAMETER_NAME: !Ref WebhookParameterName
           OPS_WEBHOOK_PROVIDER: !Ref WebhookProvider
+      Events:
+        WebhookDigest:
+          Type: SQS
+          Properties:
+            BatchSize: 100
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            MaximumBatchingWindowInSeconds: 120
+            Queue: !GetAtt OpsWebhookBufferQueue.Arn
 
   WebhookNotifierInvokePermission:
     Condition: HasNotificationWebhook
@@ -693,3 +759,7 @@ Outputs:
     Condition: HasNotificationWebhook
     Description: Failed app webhook notification dead-letter queue URL.
     Value: !Ref OpsWebhookDlq
+  OpsWebhookBufferQueueUrl:
+    Condition: HasNotificationWebhook
+    Description: P1 and P2 app notification aggregation queue URL.
+    Value: !Ref OpsWebhookBufferQueue

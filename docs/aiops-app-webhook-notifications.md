@@ -2,7 +2,14 @@
 
 ## 1. 目标
 
-在现有邮件通知之外，为 `DEGRADED` 和 `CRITICAL` 运维事件增加 App Webhook 通知。当前支持：
+在现有邮件通知之外，为异常运维事件增加 App Webhook 通知，并控制通知频率：
+
+- `CRITICAL -> P0`：立即发送。
+- `DEGRADED -> P1`：进入 2 分钟聚合窗口。
+- `UNKNOWN -> P2`：进入 2 分钟聚合窗口。
+- `HEALTHY`：不发送通知。
+
+邮件订阅仍然逐条发送，不参与聚合。当前 App Webhook 支持：
 
 - 飞书自定义机器人：`feishu`
 - 钉钉自定义机器人：`dingtalk`
@@ -18,9 +25,12 @@ Webhook 是可选功能。没有设置 `OPS_WEBHOOK_PARAMETER_NAME` 时，SAM �
 flowchart LR
   RELEASE[Release Agent Lambda] --> TOPIC[SNS Ops Notifications]
   TOPIC --> EMAIL[现有邮件订阅]
-  TOPIC --> WEBHOOK[Webhook Notifier Lambda]
-  WEBHOOK --> APP[飞书 / 钉钉 / 企业微信 / Slack / 自建 App]
+  TOPIC -->|P0 过滤器| WEBHOOK[Webhook Notifier Lambda]
+  TOPIC -->|P1/P2 过滤器| BUFFER[SQS 2 分钟聚合缓冲]
+  BUFFER --> WEBHOOK
+  WEBHOOK --> APP[企业微信 / 飞书 / 钉钉 / Slack / 自建 App]
   TOPIC -. 投递失败 .-> DLQ[SQS Webhook DLQ]
+  BUFFER -. 重试失败 .-> DLQ
   WEBHOOK --> PARAM[SSM SecureString]
 ```
 
@@ -31,6 +41,8 @@ flowchart LR
 - Webhook Lambda 不加入业务 VPC，只向 HTTPS 地址发请求。
 - Lambda 日志不会打印 Webhook URL。
 - SNS 无法调用 Lambda，或 Lambda 重试后仍无法把消息发送给 App，都会进入独立 DLQ，保留 14 天。
+- P1/P2 使用 SQS 的 Lambda 批处理窗口做低成本聚合；同一批次只调用一次 App Webhook。
+- 聚合消息包含最高优先级、总数、P1/P2 数量、去重摘要和去重后的处置建议。
 
 ## 3. 创建机器人 Webhook
 
@@ -82,8 +94,10 @@ Settings -> Environments -> production -> Environment variables
 设置完成后，手动运行 **Deploy Ops Agents** 工作流，或推送相关代码。CloudFormation 会创建：
 
 - `${SAM_STACK_NAME}-ops-webhook` Lambda
+- `${SAM_STACK_NAME}-ops-webhook-buffer` SQS 聚合缓冲队列
 - `${SAM_STACK_NAME}-ops-webhook-dlq` SQS
-- SNS 到 Webhook Lambda 的订阅和调用权限
+- SNS 到 Lambda 的 P0 直达订阅
+- SNS 到缓冲队列的 P1/P2 聚合订阅
 
 ## 6. 验收
 
@@ -94,17 +108,18 @@ aws cloudformation describe-stacks \
   --profile bhb-new \
   --region ap-northeast-1 \
   --stack-name bhb-login-ops \
-  --query "Stacks[0].Outputs[?OutputKey=='WebhookNotifierFunctionName' || OutputKey=='OpsWebhookDlqUrl']" \
+  --query "Stacks[0].Outputs[?OutputKey=='WebhookNotifierFunctionName' || OutputKey=='OpsWebhookBufferQueueUrl' || OutputKey=='OpsWebhookDlqUrl']" \
   --output table
 ```
 
 ### 6.2 触发真实通知
 
-使用现有告警测试链路，使 Release Agent 产生 `DEGRADED` 或 `CRITICAL` 结果。预期：
+使用现有告警测试链路分别产生 P0、P1 和 P2 结果。预期：
 
 1. 原有邮箱继续收到通知。
-2. App 群机器人收到中文告警摘要和建议操作。
-3. CloudWatch 日志出现 `ops.webhook.delivered`。
+2. P0 立即到达 App，日志中的 `mode` 为 `immediate`。
+3. 2 分钟内产生的 P1/P2 合并为一条 App 消息，日志中的 `mode` 为 `aggregated`。
+4. CloudWatch 日志出现 `ops.webhook.delivered`。
 
 查询日志：
 
@@ -121,7 +136,7 @@ aws logs tail /aws/lambda/bhb-login-ops-webhook \
 
 ## 7. 费用说明
 
-这条链路按调用量计费，没有新的固定月费：
+这条链路按调用量计费，没有新的固定月费。与逐条通知相比，只增加少量 SQS 请求：
 
 - SSM Standard 参数不收参数存储费。
 - Lambda 使用 ARM64、128 MB，仅告警时执行。
