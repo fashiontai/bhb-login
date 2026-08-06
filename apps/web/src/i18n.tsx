@@ -103,22 +103,44 @@ export interface AppTranslations {
 		viewProfile: string;
 	};
 	performance: {
+		apiCalls: string;
+		apiErrors: string;
+		apiSuccessRate: string;
 		averageDuration: string;
 		cls: string;
 		eventBreakdown: string;
+		eventApiRequest: string;
+		eventClientError: string;
+		eventPageView: string;
+		eventWebVital: string;
 		events: string;
 		fcp: string;
 		generatedAt: string;
+		good: string;
 		inp: string;
+		last7Days: string;
+		last30Days: string;
 		lcp: string;
 		loadFailed: string;
 		loading: string;
+		needsImprovement: string;
 		noData: string;
+		noSamples: string;
+		poor: string;
 		refresh: string;
 		rangeLabel: string;
+		requestTrend: string;
+		requestTrendDescription: string;
+		routeTraffic: string;
+		slowApis: string;
+		slowApisDescription: string;
+		statusHealthy: string;
+		subtitle: string;
 		title: string;
 		topRoutes: string;
 		totalEvents: string;
+		webVitals: string;
+		webVitalsDescription: string;
 	};
 	samDemo: {
 		apiCardTitle: string;
@@ -272,22 +294,45 @@ const translations = {
 			viewProfile: "查看 GitHub 主页",
 		},
 		performance: {
+			apiCalls: "API 请求",
+			apiErrors: "API 错误",
+			apiSuccessRate: "API 成功率",
 			averageDuration: "平均请求耗时",
 			cls: "CLS",
 			eventBreakdown: "事件类型",
+			eventApiRequest: "API 请求",
+			eventClientError: "客户端错误",
+			eventPageView: "页面访问",
+			eventWebVital: "Web Vitals",
 			events: "事件",
 			fcp: "FCP",
 			generatedAt: "生成时间",
+			good: "良好",
 			inp: "INP",
+			last7Days: "近 7 天",
+			last30Days: "近 30 天",
 			lcp: "LCP",
 			loadFailed: "加载性能数据失败",
 			loading: "加载中...",
+			needsImprovement: "需改进",
 			noData: "暂无性能数据",
+			noSamples: "等待样本",
+			poor: "较差",
 			refresh: "刷新数据",
 			rangeLabel: "统计范围",
+			requestTrend: "采集与耗时趋势",
+			requestTrendDescription: "按天查看上报事件量和 API 平均响应时间。",
+			routeTraffic: "页面流量占比",
+			slowApis: "慢接口排行",
+			slowApisDescription: "按平均响应时间从高到低排列。",
+			statusHealthy: "采集链路正常",
+			subtitle:
+				"从浏览器 SDK 到 Aurora 的实时体验数据，用于定位慢页面和慢接口。",
 			title: "性能观测",
 			topRoutes: "访问最多的页面",
 			totalEvents: "事件总数",
+			webVitals: "Web Vitals 质量",
+			webVitalsDescription: "基于 Google 推荐阈值评估用户体验。",
 		},
 		header: {
 			createAccount: "创建账户",
@@ -445,22 +490,47 @@ const translations = {
 			viewProfile: "View GitHub Profile",
 		},
 		performance: {
+			apiCalls: "API Requests",
+			apiErrors: "API Errors",
+			apiSuccessRate: "API Success Rate",
 			averageDuration: "Average Request Duration",
 			cls: "CLS",
 			eventBreakdown: "Event Types",
+			eventApiRequest: "API Requests",
+			eventClientError: "Client Errors",
+			eventPageView: "Page Views",
+			eventWebVital: "Web Vitals",
 			events: "Events",
 			fcp: "FCP",
 			generatedAt: "Generated At",
+			good: "Good",
 			inp: "INP",
+			last7Days: "Last 7 days",
+			last30Days: "Last 30 days",
 			lcp: "LCP",
 			loadFailed: "Failed to load performance data",
 			loading: "Loading...",
+			needsImprovement: "Needs improvement",
 			noData: "No performance data yet",
+			noSamples: "Awaiting samples",
+			poor: "Poor",
 			refresh: "Refresh Data",
 			rangeLabel: "Time Range",
+			requestTrend: "Collection and Latency Trend",
+			requestTrendDescription:
+				"Daily telemetry volume and average API response time.",
+			routeTraffic: "Route Traffic Share",
+			slowApis: "Slow API Ranking",
+			slowApisDescription: "Sorted by average response time, slowest first.",
+			statusHealthy: "Collection pipeline healthy",
+			subtitle:
+				"Real-user experience data from the browser SDK through Aurora, built to locate slow pages and APIs.",
 			title: "Performance Observability",
 			topRoutes: "Top Routes",
 			totalEvents: "Total Events",
+			webVitals: "Web Vitals Quality",
+			webVitalsDescription:
+				"User experience ratings based on Google's recommended thresholds.",
 		},
 		header: {
 			createAccount: "Create Account",

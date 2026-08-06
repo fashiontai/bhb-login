@@ -42,6 +42,24 @@ const performanceSummaryQuerySchema = z.object({
 	days: z.coerce.number().int().min(1).max(30).default(7),
 });
 
+interface PerformanceApiHealthRow {
+	errors: number;
+	requests: number;
+}
+
+interface PerformanceSlowApiRow {
+	apiName: string;
+	averageDurationMs: number;
+	calls: number;
+	errors: number;
+}
+
+interface PerformanceTrendRow {
+	averageDurationMs: number | null;
+	date: Date;
+	events: number;
+}
+
 const previewIdSchema = z.string().regex(/^pr-[a-z0-9-]+-[a-f0-9]{8}$/);
 const performanceEventsSqs = new SQSClient({});
 
@@ -340,7 +358,14 @@ app.get("/api/performance/summary", async (c) => {
 
 	try {
 		const where = { occurredAt: { gte: since } };
-		const [aggregate, eventCounts, routeCounts] = await Promise.all([
+		const [
+			aggregate,
+			eventCounts,
+			routeCounts,
+			trendRows,
+			slowApiRows,
+			apiHealthRows,
+		] = await Promise.all([
 			db.performanceEvent.aggregate({
 				_avg: {
 					cls: true,
@@ -362,9 +387,54 @@ app.get("/api/performance/summary", async (c) => {
 				by: ["route"],
 				where,
 			}),
+			db.$queryRaw<PerformanceTrendRow[]>`
+				SELECT
+					date_trunc('day', occurred_at) AS "date",
+					COUNT(*)::int AS "events",
+					AVG(duration_ms)::float8 AS "averageDurationMs"
+				FROM performance_event
+				WHERE occurred_at >= ${since}
+				GROUP BY 1
+				ORDER BY 1
+			`,
+			db.$queryRaw<PerformanceSlowApiRow[]>`
+				SELECT
+					api_name AS "apiName",
+					COUNT(*)::int AS "calls",
+					AVG(duration_ms)::float8 AS "averageDurationMs",
+					COUNT(*) FILTER (WHERE api_status >= 400)::int AS "errors"
+				FROM performance_event
+				WHERE occurred_at >= ${since}
+					AND event_type = 'api_request'
+					AND api_name IS NOT NULL
+					AND duration_ms IS NOT NULL
+				GROUP BY api_name
+				ORDER BY "averageDurationMs" DESC
+				LIMIT 8
+			`,
+			db.$queryRaw<PerformanceApiHealthRow[]>`
+				SELECT
+					COUNT(*) FILTER (WHERE event_type = 'api_request')::int AS "requests",
+					COUNT(*) FILTER (
+						WHERE event_type = 'api_request' AND api_status >= 400
+					)::int AS "errors"
+				FROM performance_event
+				WHERE occurred_at >= ${since}
+			`,
 		]);
 
+		const apiHealth = apiHealthRows[0] ?? { errors: 0, requests: 0 };
+		const successRate =
+			apiHealth.requests === 0
+				? null
+				: ((apiHealth.requests - apiHealth.errors) / apiHealth.requests) * 100;
+
 		return c.json({
+			apiHealth: {
+				errors: apiHealth.errors,
+				requests: apiHealth.requests,
+				successRate,
+			},
 			averages: {
 				cls: aggregate._avg.cls,
 				durationMs: aggregate._avg.durationMs,
@@ -374,6 +444,12 @@ app.get("/api/performance/summary", async (c) => {
 			},
 			days: parsedQuery.data.days,
 			generatedAt: new Date().toISOString(),
+			slowApis: slowApiRows,
+			trend: trendRows.map((row) => ({
+				averageDurationMs: row.averageDurationMs,
+				date: row.date.toISOString(),
+				events: row.events,
+			})),
 			totalEvents: aggregate._count._all,
 			byEventType: eventCounts.map((item) => ({
 				count: item._count._all,
