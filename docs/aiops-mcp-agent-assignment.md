@@ -168,5 +168,16 @@ aws logs tail /aws/lambda/bhb-login-ops-triage \
 - [x] API Gateway `AWS_IAM` 鉴权
 - [x] SAM 与 GitHub Actions 部署代码
 - [x] 单元测试与 MCP 工具发现测试
-- [ ] AWS 部署成功
-- [ ] 线上告警端到端验证完成
+- [x] AWS 部署成功
+- [x] 线上告警端到端验证完成
+
+## 8. 实际验收记录
+
+验收日期：2026-08-06
+
+- GitHub Actions 部署成功，CloudFormation 栈 `bhb-login-ops` 状态为 `UPDATE_COMPLETE`。
+- MCP 端点：`https://6kdhh0smi8.execute-api.ap-northeast-1.amazonaws.com/mcp`。
+- 未签名请求返回 `403 Forbidden`，符合 API Gateway `AWS_IAM` 鉴权预期。
+- 使用 SigV4 签名的 MCP Client 成功获取 8 类运维上下文，所有分区状态均为 `ok`。
+- 直接调用线上 Triage Lambda 成功，CloudWatch 日志包含 `type: ops.triage.completed` 和 `mcpEvidence.status: ok`。
+- 部署流水线：<https://github.com/fashiontai/bhb-login/actions/runs/31106934711>。
