@@ -134,6 +134,24 @@ jobs:
           GITHUB_EVENTS_DLQ_URL: ${{ steps.main_outputs.outputs.github_events_dlq_url }}
         run: |
           set -euo pipefail
+          parameter_overrides=(
+            "ApplicationStackName=${MAIN_STACK_NAME}"
+            "ApiFunctionName=${API_FUNCTION_NAME}"
+            "EcsClusterName=${ECS_CLUSTER_NAME}"
+            "EcsServiceName=${ECS_SERVICE_NAME}"
+            "GoTargetGroupArn=${TARGET_GROUP_ARN}"
+            "DatabaseClusterIdentifier=${DATABASE_CLUSTER_IDENTIFIER}"
+            "GithubEventsQueueUrl=${GITHUB_EVENTS_QUEUE_URL}"
+            "GithubEventsDlqUrl=${GITHUB_EVENTS_DLQ_URL}"
+            "NotificationEmail=${NOTIFICATION_EMAIL}"
+          )
+          if [ -n "${WEBHOOK_PARAMETER_NAME}" ]; then
+            parameter_overrides+=(
+              "WebhookParameterName=${WEBHOOK_PARAMETER_NAME}"
+              "WebhookProvider=${WEBHOOK_PROVIDER}"
+            )
+          fi
+
           sam deploy \
             --template-file .aws-sam/ops-agent/template.yaml \
             --stack-name "${OPS_STACK_NAME}" \
@@ -142,18 +160,7 @@ jobs:
             --capabilities CAPABILITY_IAM \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
-            --parameter-overrides \
-              "ApplicationStackName=${MAIN_STACK_NAME}" \
-              "ApiFunctionName=${API_FUNCTION_NAME}" \
-              "EcsClusterName=${ECS_CLUSTER_NAME}" \
-              "EcsServiceName=${ECS_SERVICE_NAME}" \
-              "GoTargetGroupArn=${TARGET_GROUP_ARN}" \
-              "DatabaseClusterIdentifier=${DATABASE_CLUSTER_IDENTIFIER}" \
-              "GithubEventsQueueUrl=${GITHUB_EVENTS_QUEUE_URL}" \
-              "GithubEventsDlqUrl=${GITHUB_EVENTS_DLQ_URL}" \
-              "NotificationEmail=${NOTIFICATION_EMAIL}" \
-              "WebhookParameterName=${WEBHOOK_PARAMETER_NAME}" \
-              "WebhookProvider=${WEBHOOK_PROVIDER}"
+            --parameter-overrides "${parameter_overrides[@]}"
 
       - name: Print Ops Agents outputs
         run: |
