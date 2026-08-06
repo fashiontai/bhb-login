@@ -604,7 +604,7 @@ Resources:
           OPS_WEBHOOK_PARAMETER_NAME: !Ref WebhookParameterName
           OPS_WEBHOOK_PROVIDER: !Ref WebhookProvider
       Events:
-        WebhookDigest:
+        WebhookDigestSchedule:
           Type: Schedule
           Properties:
             Description: Flush P1 and P2 app notifications as one digest every two minutes.
