@@ -64,6 +64,33 @@ test("classifies a production risk and requires approval", () => {
 	assert.ok(result.findings.some((finding) => finding.area === "queues"));
 });
 
+test("adds recent MCP error logs to the triage evidence", () => {
+	const result = triage(healthySnapshot, {
+		context: {
+			collectedAt: "2026-08-06T00:00:00.000Z",
+			resources: {
+				apiErrors: {
+					status: "ok",
+					value: { events: [{ message: "ERROR request failed" }] },
+				},
+				goErrors: { status: "ok", value: { events: [] } },
+			},
+		},
+		status: "ok",
+	});
+
+	assert.equal(result.severity, "DEGRADED");
+	assert.equal(result.mcpEvidence.status, "ok");
+	assert.ok(result.findings.some((finding) => finding.area === "apiErrors"));
+});
+
+test("keeps rule-based triage available when MCP is disabled", () => {
+	const result = triage(healthySnapshot, { status: "disabled" });
+
+	assert.equal(result.severity, "HEALTHY");
+	assert.equal(result.mcpEvidence.status, "disabled");
+});
+
 test("parses an observation from an SNS envelope", () => {
 	const result = parseObservation(
 		JSON.stringify({ Message: JSON.stringify(healthySnapshot) })

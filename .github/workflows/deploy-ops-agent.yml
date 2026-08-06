@@ -16,6 +16,7 @@ on:
     paths:
       - ".github/workflows/deploy-ops-agent.yml"
       - "apps/ops-agent/**"
+      - "apps/ops-mcp-server/**"
       - "infra/ops-agent.yaml"
       - "infra/github-actions-deploy-role.yaml"
       - "template.yaml"
@@ -65,6 +66,8 @@ jobs:
         run: |
           pnpm --filter ops-agent check-types
           pnpm --filter ops-agent build
+          pnpm --filter ops-mcp-server check-types
+          pnpm --filter ops-mcp-server build
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6

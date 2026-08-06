@@ -1,5 +1,7 @@
 import { PublishCommand, SNSClient } from "@aws-sdk/client-sns";
 
+import { collectMcpEvidence, type McpEvidence } from "./mcp-client.js";
+
 interface RecordValue {
 	[key: string]: unknown;
 }
@@ -21,6 +23,7 @@ interface ObservationSection {
 
 interface ObservationSnapshot {
 	event: {
+		alarmName?: string;
 		detailType?: string;
 		source?: string;
 		stateValue?: string;
@@ -46,6 +49,11 @@ export interface TriageResult {
 	evaluatedAt: string;
 	event: ObservationSnapshot["event"];
 	findings: TriageFinding[];
+	mcpEvidence: {
+		collectedAt?: string;
+		error?: string;
+		status: McpEvidence["status"];
+	};
 	recommendedActions: string[];
 	requiresApproval: boolean;
 	severity: TriageSeverity;
@@ -311,7 +319,41 @@ const inspectAlarm = (
 	}
 };
 
-export const triage = (snapshot: ObservationSnapshot): TriageResult => {
+const inspectMcpLogs = (
+	evidence: McpEvidence,
+	findings: TriageFinding[]
+): void => {
+	if (evidence.status !== "ok" || !isRecord(evidence.context?.resources)) {
+		return;
+	}
+	for (const name of ["apiErrors", "goErrors"]) {
+		const section = evidence.context.resources[name];
+		if (
+			!isRecord(section) ||
+			section.status !== "ok" ||
+			!isRecord(section.value)
+		) {
+			continue;
+		}
+		const events = Array.isArray(section.value.events)
+			? section.value.events
+			: [];
+		if (events.length > 0) {
+			findings.push({
+				area: name,
+				evidence: `${name}.events=${events.length} in the last 15 minutes`,
+				recommendedAction: "查看 MCP 返回的近期错误日志并确认首个异常时间点",
+				severity: "DEGRADED",
+				summary: `${name} 存在近期错误日志`,
+			});
+		}
+	}
+};
+
+export const triage = (
+	snapshot: ObservationSnapshot,
+	mcpEvidence: McpEvidence = { status: "disabled" }
+): TriageResult => {
 	const findings: TriageFinding[] = [];
 	for (const name of snapshot.failedChecks ?? []) {
 		findings.push({
@@ -329,6 +371,7 @@ export const triage = (snapshot: ObservationSnapshot): TriageResult => {
 	inspectAlb(snapshot, findings);
 	inspectDatabase(snapshot, findings);
 	inspectQueues(snapshot, findings);
+	inspectMcpLogs(mcpEvidence, findings);
 
 	const hasCriticalFinding = findings.some(
 		(finding) => finding.severity === "CRITICAL"
@@ -351,6 +394,11 @@ export const triage = (snapshot: ObservationSnapshot): TriageResult => {
 		evaluatedAt: new Date().toISOString(),
 		event: snapshot.event,
 		findings,
+		mcpEvidence: {
+			collectedAt: mcpEvidence.context?.collectedAt,
+			error: mcpEvidence.error,
+			status: mcpEvidence.status,
+		},
 		recommendedActions,
 		requiresApproval: findings.length > 0,
 		severity,
@@ -377,7 +425,10 @@ export const handler = async (event: SqsEvent) => {
 	for (const record of event.Records) {
 		try {
 			const snapshot = parseObservation(record.body);
-			const result = triage(snapshot);
+			const mcpEvidence = await collectMcpEvidence({
+				alarmName: snapshot.event.alarmName,
+			});
+			const result = triage(snapshot, mcpEvidence);
 			await publishTriageResult(result);
 			console.info(JSON.stringify(result));
 		} catch (error) {

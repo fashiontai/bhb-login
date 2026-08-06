@@ -2,12 +2,7 @@ import { defineConfig } from "tsdown";
 
 export default defineConfig({
 	clean: true,
-	entry: [
-		"src/observer.ts",
-		"src/triage.ts",
-		"src/release.ts",
-		"src/mcp-client.ts",
-	],
+	entry: ["src/lambda.ts", "src/server.ts", "src/stdio.ts", "src/tools.ts"],
 	format: ["esm"],
 	noExternal: [/.*/],
 	outDir: "dist",

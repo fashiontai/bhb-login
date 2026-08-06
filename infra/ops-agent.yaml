@@ -364,7 +364,7 @@ Resources:
       Architectures:
         - arm64
       MemorySize: 256
-      Timeout: 30
+      Timeout: 60
       Policies:
         - AWSLambdaBasicExecutionRole
         - Statement:
@@ -380,9 +380,15 @@ Resources:
               Action:
                 - sns:Publish
               Resource: !Ref OpsTriageResultsTopic
+        - Statement:
+            - Effect: Allow
+              Action:
+                - execute-api:Invoke
+              Resource: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${OpsMcpApi}/*/POST/mcp"
       Environment:
         Variables:
           OPS_APPLICATION_STACK_NAME: !Ref ApplicationStackName
+          OPS_MCP_ENDPOINT: !Sub "https://${OpsMcpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mcp"
           OPS_TRIAGE_RESULTS_TOPIC_ARN: !Ref OpsTriageResultsTopic
       Events:
         TriageObservations:
@@ -442,6 +448,90 @@ Resources:
             MaximumBatchingWindowInSeconds: 10
             Queue: !GetAtt OpsReleaseQueue.Arn
 
+  OpsMcpServerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ApplicationStackName}-ops-mcp"
+      RetentionInDays: !Ref LogRetentionInDays
+
+  OpsMcpServerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ApplicationStackName}-ops-mcp"
+      CodeUri: ../apps/ops-mcp-server/dist/
+      Handler: lambda.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - arm64
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action:
+                - cloudwatch:DescribeAlarms
+                - ecs:DescribeClusters
+                - ecs:DescribeServices
+                - elasticloadbalancing:DescribeTargetHealth
+                - lambda:GetAlias
+                - logs:FilterLogEvents
+                - rds:DescribeDBClusters
+                - sqs:GetQueueAttributes
+              Resource: "*"
+      Environment:
+        Variables:
+          OPS_API_FUNCTION_NAME: !Ref ApiFunctionName
+          OPS_API_ALIAS_NAME: !Ref ApiAliasName
+          OPS_ECS_CLUSTER_NAME: !Ref EcsClusterName
+          OPS_ECS_SERVICE_NAME: !Ref EcsServiceName
+          OPS_GO_TARGET_GROUP_ARN: !Ref GoTargetGroupArn
+          OPS_DATABASE_CLUSTER_IDENTIFIER: !Ref DatabaseClusterIdentifier
+          OPS_GITHUB_EVENTS_QUEUE_URL: !Ref GithubEventsQueueUrl
+          OPS_GITHUB_EVENTS_DLQ_URL: !Ref GithubEventsDlqUrl
+          OPS_APPLICATION_STACK_NAME: !Ref ApplicationStackName
+
+  OpsMcpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "${ApplicationStackName}-ops-mcp"
+      ProtocolType: HTTP
+
+  OpsMcpIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref OpsMcpApi
+      IntegrationMethod: POST
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt OpsMcpServerFunction.Arn
+      PayloadFormatVersion: "2.0"
+      TimeoutInMillis: 29000
+
+  OpsMcpRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref OpsMcpApi
+      AuthorizationType: AWS_IAM
+      RouteKey: POST /mcp
+      Target: !Sub "integrations/${OpsMcpIntegration}"
+
+  OpsMcpDefaultStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref OpsMcpApi
+      AutoDeploy: true
+      StageName: $default
+
+  OpsMcpInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OpsMcpServerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${OpsMcpApi}/*/POST/mcp"
+
 Outputs:
   ObserverAgentFunctionName:
     Description: Observer Agent Lambda function name.
@@ -452,6 +542,12 @@ Outputs:
   ReleaseAgentFunctionName:
     Description: Release and approval gate function name.
     Value: !Ref ReleaseAgentFunction
+  OpsMcpServerFunctionName:
+    Description: Read-only operations MCP Server Lambda function name.
+    Value: !Ref OpsMcpServerFunction
+  OpsMcpEndpoint:
+    Description: IAM-authorized Streamable HTTP endpoint used by the Triage Agent.
+    Value: !Sub "https://${OpsMcpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mcp"
   OpsEventsTopicArn:
     Description: SNS topic receiving operations events.
     Value: !Ref OpsEventsTopic
