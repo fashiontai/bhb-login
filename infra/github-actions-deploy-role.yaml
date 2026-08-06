@@ -70,8 +70,8 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Sid: CloudFormationAccess
-                Effect: Allow
+              # CloudFormation deployment lifecycle.
+              - Effect: Allow
                 Action:
                   - cloudformation:CreateChangeSet
                   - cloudformation:CreateStack
@@ -89,8 +89,8 @@ Resources:
                   - cloudformation:UpdateStack
                   - cloudformation:ValidateTemplate
                 Resource: "*"
-              - Sid: SamArtifactBucketAccess
-                Effect: Allow
+              # SAM artifact bucket lifecycle.
+              - Effect: Allow
                 Action:
                   - s3:CreateBucket
                   - s3:DeleteBucket
@@ -120,8 +120,8 @@ Resources:
                   - s3:TagResource
                   - s3:UntagResource
                 Resource: "*"
-              - Sid: ServerlessResourceAccess
-                Effect: Allow
+              # Serverless application resources.
+              - Effect: Allow
                 Action:
                   - apigateway:DELETE
                   - apigateway:GET
@@ -229,8 +229,8 @@ Resources:
                   - secretsmanager:UntagResource
                   - secretsmanager:UpdateSecret
                 Resource: "*"
-              - Sid: IamForSamRoles
-                Effect: Allow
+              # IAM roles created by SAM.
+              - Effect: Allow
                 Action:
                   - iam:AddRoleToInstanceProfile
                   - iam:AttachRolePolicy
@@ -255,8 +255,8 @@ Resources:
                   - iam:UntagRole
                   - iam:UpdateAssumeRolePolicy
                 Resource: "*"
-              - Sid: EcrRepositoryDeployment
-                Effect: Allow
+              # ECR repository deployment.
+              - Effect: Allow
                 Action:
                   - ecr:BatchCheckLayerAvailability
                   - ecr:BatchGetImage
@@ -283,8 +283,8 @@ Resources:
                   - ecr:UntagResource
                   - ecr:UploadLayerPart
                 Resource: "*"
-              - Sid: CloudWatchSyntheticsDeployment
-                Effect: Allow
+              # CloudWatch Synthetics deployment.
+              - Effect: Allow
                 Action:
                   - synthetics:CreateCanary
                   - synthetics:DeleteCanary
@@ -296,13 +296,13 @@ Resources:
                   - synthetics:UntagResource
                   - synthetics:UpdateCanary
                 Resource: "*"
-              - Sid: ReadCloudWatchSyntheticsLayer
-                Effect: Allow
+              # Read the managed Synthetics layer.
+              - Effect: Allow
                 Action:
                   - lambda:GetLayerVersion
                 Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:172291836251:layer:Synthetics:*"
-              - Sid: MessagingResourceDeployment
-                Effect: Allow
+              # Lambda, SNS, and SQS messaging resources.
+              - Effect: Allow
                 Action:
                   - lambda:CreateEventSourceMapping
                   - lambda:DeleteEventSourceMapping
@@ -332,8 +332,13 @@ Resources:
                   - sqs:TagQueue
                   - sqs:UntagQueue
                 Resource: "*"
-              - Sid: EventBridgeOperationsDeployment
-                Effect: Allow
+              # Update filters only on this project's operations topic.
+              - Effect: Allow
+                Action:
+                  - sns:SetSubscriptionAttributes
+                Resource: !Sub "arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:bhb-login-ops-notifications"
+              # EventBridge operations rules.
+              - Effect: Allow
                 Action:
                   - events:DeleteRule
                   - events:DescribeRule
@@ -344,8 +349,8 @@ Resources:
                   - events:TagResource
                   - events:UntagResource
                 Resource: "*"
-              - Sid: EcsFargateDeployment
-                Effect: Allow
+              # ECS Fargate deployment.
+              - Effect: Allow
                 Action:
                   - ecs:CreateCluster
                   - ecs:CreateService
@@ -372,8 +377,8 @@ Resources:
                   - ecs:UpdateCluster
                   - ecs:UpdateService
                 Resource: "*"
-              - Sid: CloudMapDeployment
-                Effect: Allow
+              # Cloud Map service discovery.
+              - Effect: Allow
                 Action:
                   - servicediscovery:CreatePrivateDnsNamespace
                   - servicediscovery:CreateService
@@ -390,8 +395,8 @@ Resources:
                   - servicediscovery:UntagResource
                   - servicediscovery:UpdateService
                 Resource: "*"
-              - Sid: Route53ForCloudMap
-                Effect: Allow
+              # Route 53 resources managed by Cloud Map.
+              - Effect: Allow
                 Action:
                   - route53:ChangeResourceRecordSets
                   - route53:ChangeTagsForResource
@@ -402,8 +407,8 @@ Resources:
                   - route53:ListHostedZonesByName
                   - route53:ListResourceRecordSets
                 Resource: "*"
-              - Sid: ApplicationLoadBalancerDeployment
-                Effect: Allow
+              # Application Load Balancer deployment.
+              - Effect: Allow
                 Action:
                   - elasticloadbalancing:AddTags
                   - elasticloadbalancing:AddListenerCertificates
@@ -438,13 +443,13 @@ Resources:
                   - elasticloadbalancing:SetRulePriorities
                   - elasticloadbalancing:SetSubnets
                 Resource: "*"
-              - Sid: ReadApplicationLoadBalancerCertificate
-                Effect: Allow
+              # Read the configured ALB certificate.
+              - Effect: Allow
                 Action:
                   - acm:DescribeCertificate
                 Resource: !Sub "arn:${AWS::Partition}:acm:${AWS::Region}:${AWS::AccountId}:certificate/*"
-              - Sid: ReadAmazonLinuxPublicAmiParameter
-                Effect: Allow
+              # Read the public Amazon Linux AMI parameter.
+              - Effect: Allow
                 Action:
                   - ssm:GetParameter
                   - ssm:GetParameters
